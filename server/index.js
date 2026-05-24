@@ -10,19 +10,22 @@ const { registerRoomHandlers } = require('./socket/roomHandlers');
 const app = express();
 app.use(express.json());
 
-app.use(cors({ origin: process.env.FRONTEND_URL }));
+app.use(cors({ 
+  origin: process.env.FRONTEND_URL,
+  methods: ["GET", "POST"]
+}));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.FRONTEND_URL }
+  cors: { 
+    origin: process.env.FRONTEND_URL,
+    methods: ["GET", "POST"]
+  }
 });
 
-// Avoid crash if MONGO_URI is empty for now
-if (process.env.MONGO_URI) {
-  mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('MongoDB connected'))
-    .catch(err => console.error('MongoDB connection error:', err));
-}
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 app.use('/api/rooms', roomsRouter);
 
