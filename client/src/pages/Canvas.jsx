@@ -1,15 +1,31 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { throttle } from 'lodash';
 import { fabric } from 'fabric';
 
+import Toolbar from '../components/Toolbar';
+
 const Canvas = () => {
   const { code: roomCode } = useParams();
+  const [activeTool, setActiveTool] = useState('select');
+  const [brushColor, setBrushColor] = useState('#000000');
+  const [brushWidth, setBrushWidth] = useState(2);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
   const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
+
+  useEffect(() => {
+    if (canvasRef.current) {
+      canvasRef.current.isDrawingMode = (activeTool === 'pen');
+      if (activeTool === 'pen') {
+        canvasRef.current.freeDrawingBrush.color = brushColor;
+        canvasRef.current.freeDrawingBrush.width = brushWidth;
+      }
+      window.CANVAS_ACTIVE_TOOL = activeTool;
+    }
+  }, [brushColor, brushWidth, activeTool]);
 
   useEffect(() => {
     const socket = io(process.env.REACT_APP_BACKEND_URL);
@@ -44,6 +60,20 @@ const Canvas = () => {
       if (!e.target.id) return; // guard: never emit delete for objects without an ID
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_delete', { roomCode, objectId: e.target.id });
+    });
+
+    canvas.on('path:created', (e) => {
+      if (!e.path.id) e.path.set('id', uuidv4());
+      if (!isReceivingUpdate.current) {
+        socketRef.current.emit('canvas_update', { roomCode, objectData: e.path.toJSON(['id']) });
+      }
+    });
+
+    canvas.on('mouse:down', (e) => {
+      if (window.CANVAS_ACTIVE_TOOL === 'eraser' && e.target) {
+        canvas.remove(e.target);
+        socketRef.current.emit('canvas_delete', { roomCode, objectId: e.target.id });
+      }
     });
 
     // ── ROOPAK'S SHAPE DRAWING LOGIC ─────────────────────────────
@@ -215,6 +245,14 @@ const Canvas = () => {
 
   return (
     <div>
+      <Toolbar 
+        activeTool={activeTool} 
+        setActiveTool={setActiveTool} 
+        brushColor={brushColor} 
+        setBrushColor={setBrushColor} 
+        brushWidth={brushWidth} 
+        setBrushWidth={setBrushWidth} 
+      />
       <canvas id="canvas-el" width={1200} height={700} />
       <button onClick={handleSave}>Save Board</button>
     </div>
