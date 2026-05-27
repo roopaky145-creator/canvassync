@@ -47,18 +47,22 @@ const Canvas = () => {
     });
 
     // ── ROOPAK'S SHAPE DRAWING LOGIC ─────────────────────────────
+    const supportedDrawingTools = new Set(['rect', 'circle']);
     let isDrawingShape = false;
+    let drawingTool = null;
     let origX = 0;
     let origY = 0;
     let tempShape = null;
 
     canvas.on('mouse:down', (o) => {
       const tool = window.CANVAS_ACTIVE_TOOL || 'select';
-      if (tool === 'select') return;
-      
+      if (!supportedDrawingTools.has(tool)) return;
+
       canvas.discardActiveObject();
       const pointer = canvas.getPointer(o.e);
+
       isDrawingShape = true;
+      drawingTool = tool;
       origX = pointer.x;
       origY = pointer.y;
 
@@ -76,8 +80,7 @@ const Canvas = () => {
           selectable: false,
           id: uuidv4()
         });
-        canvas.add(tempShape);
-      } else if (tool === 'circle') {
+      } else {
         tempShape = new fabric.Circle({
           left: origX,
           top: origY,
@@ -90,49 +93,59 @@ const Canvas = () => {
           selectable: false,
           id: uuidv4()
         });
-        canvas.add(tempShape);
       }
+
+      canvas.add(tempShape);
     });
 
     canvas.on('mouse:move', (o) => {
       if (!isDrawingShape || !tempShape) return;
-      const pointer = canvas.getPointer(o.e);
-      const tool = window.CANVAS_ACTIVE_TOOL || 'select';
 
-      if (tool === 'rect') {
-        if (origX > pointer.x) {
-          tempShape.set({ left: pointer.x });
-        }
-        if (origY > pointer.y) {
-          tempShape.set({ top: pointer.y });
-        }
-        tempShape.set({ width: Math.abs(origX - pointer.x) });
-        tempShape.set({ height: Math.abs(origY - pointer.y) });
-      } else if (tool === 'circle') {
-        const radius = Math.max(Math.abs(origY - pointer.y), Math.abs(origX - pointer.x)) / 2;
-        tempShape.set({ radius: radius });
+      const pointer = canvas.getPointer(o.e);
+      const dx = pointer.x - origX;
+      const dy = pointer.y - origY;
+
+      if (drawingTool === 'rect') {
+        tempShape.set({
+          left: Math.min(origX, pointer.x),
+          top: Math.min(origY, pointer.y),
+          width: Math.abs(dx),
+          height: Math.abs(dy)
+        });
+      } else if (drawingTool === 'circle') {
+        tempShape.set({
+          left: origX + dx / 2,
+          top: origY + dy / 2,
+          radius: Math.max(Math.abs(dx), Math.abs(dy)) / 2
+        });
       }
+
+      tempShape.setCoords();
       canvas.renderAll();
     });
 
-    canvas.on('mouse:up', (o) => {
-      if (isDrawingShape && tempShape) {
-        isDrawingShape = false;
-        const isZeroSize =
-          (tempShape.type === 'rect' && (tempShape.width < 2 || tempShape.height < 2)) ||
-          (tempShape.type === 'circle' && tempShape.radius < 2);
-        if (isZeroSize) {
-          isReceivingUpdate.current = true;
-          canvas.remove(tempShape);
-          isReceivingUpdate.current = false;
-        } else {
-          tempShape.setCoords();
-          tempShape.set({ selectable: true });
-          socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
-        }
-        tempShape = null;
-        window.CANVAS_ACTIVE_TOOL = 'select'; // auto-revert to select tool
+    canvas.on('mouse:up', () => {
+      if (!isDrawingShape || !tempShape) return;
+
+      isDrawingShape = false;
+
+      const isZeroSize =
+        (tempShape.type === 'rect' && (tempShape.width < 2 || tempShape.height < 2)) ||
+        (tempShape.type === 'circle' && tempShape.radius < 2);
+
+      if (isZeroSize) {
+        isReceivingUpdate.current = true;
+        canvas.remove(tempShape);
+        isReceivingUpdate.current = false;
+      } else {
+        tempShape.setCoords();
+        tempShape.set({ selectable: true });
+        socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
       }
+
+      tempShape = null;
+      drawingTool = null;
+      window.CANVAS_ACTIVE_TOOL = 'select';
     });
 
     // ── ROOPAK'S DELETE HANDLER ──────────────────────────────────
