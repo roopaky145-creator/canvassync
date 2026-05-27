@@ -46,6 +46,100 @@ const Canvas = () => {
       socket.emit('canvas_delete', { roomCode, objectId: e.target.id });
     });
 
+    // ── ROOPAK'S SHAPE DRAWING LOGIC ─────────────────────────────
+    let isDrawingShape = false;
+    let origX = 0;
+    let origY = 0;
+    let tempShape = null;
+
+    canvas.on('mouse:down', (o) => {
+      const tool = window.CANVAS_ACTIVE_TOOL || 'select';
+      if (tool === 'select') return;
+      
+      canvas.discardActiveObject();
+      const pointer = canvas.getPointer(o.e);
+      isDrawingShape = true;
+      origX = pointer.x;
+      origY = pointer.y;
+
+      if (tool === 'rect') {
+        tempShape = new fabric.Rect({
+          left: origX,
+          top: origY,
+          originX: 'left',
+          originY: 'top',
+          width: 0,
+          height: 0,
+          fill: 'transparent',
+          stroke: 'black',
+          strokeWidth: 2,
+          selectable: false,
+          id: uuidv4()
+        });
+        canvas.add(tempShape);
+      } else if (tool === 'circle') {
+        tempShape = new fabric.Circle({
+          left: origX,
+          top: origY,
+          originX: 'center',
+          originY: 'center',
+          radius: 0,
+          fill: 'transparent',
+          stroke: 'black',
+          strokeWidth: 2,
+          selectable: false,
+          id: uuidv4()
+        });
+        canvas.add(tempShape);
+      }
+    });
+
+    canvas.on('mouse:move', (o) => {
+      if (!isDrawingShape || !tempShape) return;
+      const pointer = canvas.getPointer(o.e);
+      const tool = window.CANVAS_ACTIVE_TOOL || 'select';
+
+      if (tool === 'rect') {
+        if (origX > pointer.x) {
+          tempShape.set({ left: Math.abs(pointer.x) });
+        }
+        if (origY > pointer.y) {
+          tempShape.set({ top: Math.abs(pointer.y) });
+        }
+        tempShape.set({ width: Math.abs(origX - pointer.x) });
+        tempShape.set({ height: Math.abs(origY - pointer.y) });
+      } else if (tool === 'circle') {
+        const radius = Math.max(Math.abs(origY - pointer.y), Math.abs(origX - pointer.x)) / 2;
+        tempShape.set({ radius: radius });
+      }
+      canvas.renderAll();
+    });
+
+    canvas.on('mouse:up', (o) => {
+      if (isDrawingShape && tempShape) {
+        isDrawingShape = false;
+        tempShape.setCoords();
+        tempShape.set({ selectable: true });
+        socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        tempShape = null;
+        window.CANVAS_ACTIVE_TOOL = 'select'; // auto-revert to select tool
+      }
+    });
+
+    // ── ROOPAK'S DELETE HANDLER ──────────────────────────────────
+    const handleKeyDown = (e) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const activeObjects = canvas.getActiveObjects();
+        if (activeObjects.length > 0) {
+          if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+          e.preventDefault();
+          activeObjects.forEach(obj => canvas.remove(obj));
+          canvas.discardActiveObject();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     // ── RECEIVE SIDE ─────────────────────────────────────────────
     socket.on('canvas_update', (data) => {
       isReceivingUpdate.current = true;
@@ -87,6 +181,7 @@ const Canvas = () => {
 
     return () => {
       throttledMove.cancel();
+      window.removeEventListener('keydown', handleKeyDown);
       socket.disconnect();
       canvas.dispose();
     };
