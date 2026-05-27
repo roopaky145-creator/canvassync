@@ -35,6 +35,7 @@ const Canvas = () => {
     canvas.on('object:moving', throttledMove);
 
     canvas.on('object:modified', (e) => {
+      throttledMove.flush();
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_update', { roomCode, objectData: e.target.toJSON(['id']) });
     });
@@ -50,15 +51,21 @@ const Canvas = () => {
       isReceivingUpdate.current = true;
       const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
-        existing.set(data.objectData);
-        existing.setCoords();
-        canvas.renderAll();
-        isReceivingUpdate.current = false;
+        try {
+          existing.set(data.objectData);
+          existing.setCoords();
+          canvas.renderAll();
+        } finally {
+          isReceivingUpdate.current = false;
+        }
       } else {
         fabric.util.enlivenObjects([data.objectData], (objects) => {
-          objects.forEach(obj => canvas.add(obj));
-          canvas.renderAll();
-          isReceivingUpdate.current = false;
+          try {
+            objects.forEach(obj => canvas.add(obj));
+            canvas.renderAll();
+          } finally {
+            isReceivingUpdate.current = false;
+          }
         });
       }
     });
