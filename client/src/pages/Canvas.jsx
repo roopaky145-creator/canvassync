@@ -64,15 +64,12 @@ const Canvas = () => {
 
     canvas.on('path:created', (e) => {
       if (!e.path.id) e.path.set('id', uuidv4());
-      if (!isReceivingUpdate.current) {
-        socketRef.current.emit('canvas_update', { roomCode, objectData: e.path.toJSON(['id']) });
-      }
     });
 
     canvas.on('mouse:down', (e) => {
       if (window.CANVAS_ACTIVE_TOOL === 'eraser' && e.target) {
+        if (!e.target.id) return; // Guard against unsynced objects
         canvas.remove(e.target);
-        socketRef.current.emit('canvas_delete', { roomCode, objectId: e.target.id });
       }
     });
 
@@ -176,6 +173,7 @@ const Canvas = () => {
       tempShape = null;
       drawingTool = null;
       window.CANVAS_ACTIVE_TOOL = 'select';
+      setActiveTool('select');
     });
 
     // ── ROOPAK'S DELETE HANDLER ──────────────────────────────────

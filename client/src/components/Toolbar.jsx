@@ -23,7 +23,7 @@ const Toolbar = ({ activeTool, setActiveTool, brushColor, setBrushColor, brushWi
             textTransform: 'capitalize'
           }}
         >
-          {tool}
+          {tool === 'rect' ? 'Rectangle' : tool === 'circle' ? 'Circle' : tool}
         </button>
       ))}
       <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
