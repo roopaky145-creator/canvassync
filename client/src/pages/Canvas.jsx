@@ -22,7 +22,7 @@ const Canvas = () => {
     // ── EMIT SIDE ────────────────────────────────────────────────
     canvas.on('object:added', (e) => {
       if (!e.target.id) e.target.set('id', uuidv4());
-      if (!isReceivingUpdate.current) {
+      if (!isReceivingUpdate.current && !isDrawingShape) {
         socket.emit('canvas_update', { roomCode, objectData: e.target.toJSON(['id']) });
       }
     });
@@ -101,10 +101,10 @@ const Canvas = () => {
 
       if (tool === 'rect') {
         if (origX > pointer.x) {
-          tempShape.set({ left: Math.abs(pointer.x) });
+          tempShape.set({ left: pointer.x });
         }
         if (origY > pointer.y) {
-          tempShape.set({ top: Math.abs(pointer.y) });
+          tempShape.set({ top: pointer.y });
         }
         tempShape.set({ width: Math.abs(origX - pointer.x) });
         tempShape.set({ height: Math.abs(origY - pointer.y) });
@@ -118,9 +118,18 @@ const Canvas = () => {
     canvas.on('mouse:up', (o) => {
       if (isDrawingShape && tempShape) {
         isDrawingShape = false;
-        tempShape.setCoords();
-        tempShape.set({ selectable: true });
-        socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        const isZeroSize =
+          (tempShape.type === 'rect' && (tempShape.width < 2 || tempShape.height < 2)) ||
+          (tempShape.type === 'circle' && tempShape.radius < 2);
+        if (isZeroSize) {
+          isReceivingUpdate.current = true;
+          canvas.remove(tempShape);
+          isReceivingUpdate.current = false;
+        } else {
+          tempShape.setCoords();
+          tempShape.set({ selectable: true });
+          socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        }
         tempShape = null;
         window.CANVAS_ACTIVE_TOOL = 'select'; // auto-revert to select tool
       }
@@ -133,8 +142,9 @@ const Canvas = () => {
         if (activeObjects.length > 0) {
           if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
           e.preventDefault();
-          activeObjects.forEach(obj => canvas.remove(obj));
           canvas.discardActiveObject();
+          activeObjects.forEach(obj => canvas.remove(obj));
+          canvas.renderAll();
         }
       }
     };
