@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { MousePointer, Square, Circle, PenTool, Eraser, Minus, ArrowRight, Type, Undo, Redo, Palette } from 'lucide-react';
+import { MousePointer, Square, Circle, PenTool, Eraser, Minus, Type, Undo, Redo, Palette, Download } from 'lucide-react';
 
 const Toolbar = ({ 
   activeTool, setActiveTool, 
   brushColor, setBrushColor, 
   brushWidth, setBrushWidth,
-  handleUndo, handleRedo 
+  handleUndo, handleRedo,
+  onSave
 }) => {
   const [showSettings, setShowSettings] = useState(false);
 
@@ -14,7 +15,6 @@ const Toolbar = ({
     { id: 'rect', icon: <Square size={20} />, title: 'Rectangle' },
     { id: 'circle', icon: <Circle size={20} />, title: 'Circle' },
     { id: 'line', icon: <Minus size={20} />, title: 'Line' },
-    { id: 'arrow', icon: <ArrowRight size={20} />, title: 'Arrow' },
     { id: 'pen', icon: <PenTool size={20} />, title: 'Pen' },
     { id: 'eraser', icon: <Eraser size={20} />, title: 'Eraser' },
     { id: 'text', icon: <Type size={20} />, title: 'Text' },
@@ -98,6 +98,20 @@ const Toolbar = ({
           }}
         >
           <Redo size={20} />
+        </button>
+
+        <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0', margin: '0 4px' }} />
+
+        <button
+          title="Save"
+          onClick={onSave}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '36px', height: '36px', border: 'none', borderRadius: '8px',
+            backgroundColor: 'transparent', color: '#64748b', cursor: 'pointer'
+          }}
+        >
+          <Download size={20} />
         </button>
       </div>
 

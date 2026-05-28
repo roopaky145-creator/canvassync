@@ -103,7 +103,7 @@ const Canvas = () => {
     });
 
     // ── ROOPAK'S SHAPE DRAWING LOGIC ─────────────────────────────
-    const supportedDrawingTools = new Set(['rect', 'circle', 'line', 'arrow', 'text']);
+    const supportedDrawingTools = new Set(['rect', 'circle', 'line', 'text']);
     let isDrawingShape = false;
     let drawingTool = null;
     let origX = 0;
@@ -158,10 +158,6 @@ const Canvas = () => {
         tempShape = new fabric.Line([origX, origY, origX, origY], {
           stroke: brushColor, strokeWidth: brushWidth, selectable: false, id: uuidv4()
         });
-      } else if (tool === 'arrow') {
-        tempShape = new fabric.Path(`M ${origX} ${origY} L ${origX} ${origY}`, {
-          stroke: brushColor, strokeWidth: brushWidth, fill: 'transparent', selectable: false, id: uuidv4()
-        });
       }
 
       canvas.add(tempShape);
@@ -189,19 +185,6 @@ const Canvas = () => {
         });
       } else if (drawingTool === 'line') {
         tempShape.set({ x2: pointer.x, y2: pointer.y });
-      } else if (drawingTool === 'arrow') {
-        const angle = Math.atan2(dy, dx);
-        const headlen = 15;
-        const pathData = [
-          ['M', origX, origY],
-          ['L', pointer.x, pointer.y],
-          ['M', pointer.x, pointer.y],
-          ['L', pointer.x - headlen * Math.cos(angle - Math.PI/6), pointer.y - headlen * Math.sin(angle - Math.PI/6)],
-          ['M', pointer.x, pointer.y],
-          ['L', pointer.x - headlen * Math.cos(angle + Math.PI/6), pointer.y - headlen * Math.sin(angle + Math.PI/6)]
-        ];
-        tempShape.set({ path: pathData });
-        tempShape._calcDimensions();
       }
 
       tempShape.set({ stroke: brushColor, strokeWidth: brushWidth });
@@ -316,9 +299,9 @@ const Canvas = () => {
         setBrushWidth={setBrushWidth} 
         handleUndo={handleUndo}
         handleRedo={handleRedo}
+        onSave={handleSave}
       />
       <canvas id="canvas-el" width={1200} height={700} />
-      <button onClick={handleSave}>Save Board</button>
     </div>
   );
 };
