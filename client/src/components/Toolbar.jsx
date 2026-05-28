@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MousePointer, Square, Circle, PenTool, Eraser, Minus, Type, Undo, Redo, Palette, Download } from 'lucide-react';
 
-const Toolbar = ({ activeTool, setActiveTool, onSave }) => {
+const Toolbar = ({ activeTool, setActiveTool, onSave, handleUndo, handleRedo, brushColor, setBrushColor, brushWidth, setBrushWidth }) => {
   const [showSettings, setShowSettings] = useState(false);
 
   const tools = [

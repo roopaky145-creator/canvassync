@@ -291,7 +291,17 @@ const Canvas = () => {
 
   return (
     <div style={{ position: 'relative' }}>
-      <Toolbar activeTool="{activeTool}" onSave="{handleSave}" setActiveTool="{setActiveTool}"/>
+        <Toolbar 
+    activeTool={activeTool} 
+    setActiveTool={setActiveTool} 
+    onSave={handleSave} 
+    handleUndo={handleUndo} 
+    handleRedo={handleRedo} 
+    brushColor={brushColor} 
+    setBrushColor={setBrushColor} 
+    brushWidth={brushWidth} 
+    setBrushWidth={setBrushWidth} 
+  />
       <canvas id="canvas-el" width={1200} height={700} />
     </div>
   );
