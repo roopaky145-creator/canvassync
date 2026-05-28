@@ -13,15 +13,15 @@ const Canvas = () => {
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(2);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
-  const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
-  const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
-  const currentColorRef = useRef(brushColor);
-  const currentWidthRef = useRef(brushWidth);
+const currentColorRef = useRef(brushColor);
+const currentWidthRef = useRef(brushWidth);
 
-  useEffect(() => {
+useEffect(() => {
     currentColorRef.current = brushColor;
     currentWidthRef.current = brushWidth;
-  }, [brushColor, brushWidth]);
+}, [brushColor, brushWidth]);
+  const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
+  const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
   const lastAddedObjectRef = useRef(null);
   const redoObjectRef = useRef(null);
 
@@ -298,17 +298,17 @@ const Canvas = () => {
 
   return (
     <div style={{ position: 'relative' }}>
-        <Toolbar 
-    activeTool={activeTool} 
-    setActiveTool={setActiveTool} 
-    onSave={handleSave} 
-    handleUndo={handleUndo} 
-    handleRedo={handleRedo} 
-    brushColor={brushColor} 
-    setBrushColor={setBrushColor} 
-    brushWidth={brushWidth} 
-    setBrushWidth={setBrushWidth} 
-  />
+      <Toolbar 
+        activeTool={activeTool} 
+        setActiveTool={setActiveTool} 
+        onSave={handleSave} 
+        handleUndo={handleUndo} 
+        handleRedo={handleRedo} 
+        brushColor={brushColor} 
+        setBrushColor={setBrushColor} 
+        brushWidth={brushWidth} 
+        setBrushWidth={setBrushWidth} 
+      />
       <canvas id="canvas-el" width={1200} height={700} />
     </div>
   );
