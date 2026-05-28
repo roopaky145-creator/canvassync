@@ -44,17 +44,6 @@ const Canvas = () => {
   };
 
   useEffect(() => {
-      if (!canvasRef.current) return;
-      if (activeTool === 'pen' || activeTool === 'eraser') {
-          canvasRef.current.isDrawingMode = true;
-          canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
-          canvasRef.current.freeDrawingBrush.width = brushWidth;
-      } else {
-          canvasRef.current.isDrawingMode = false;
-      }
-  }, [activeTool, brushColor, brushWidth]);
-
-  useEffect(() => {
     const socket = io(process.env.REACT_APP_BACKEND_URL);
     socketRef.current = socket;
     const canvas = new fabric.Canvas('canvas-el');
@@ -284,6 +273,18 @@ const Canvas = () => {
       canvas.dispose();
     };
   }, [roomCode]);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    
+    if (activeTool === 'pen' || activeTool === 'eraser') {
+      canvasRef.current.isDrawingMode = true;
+      canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
+      canvasRef.current.freeDrawingBrush.width = brushWidth;
+    } else {
+      canvasRef.current.isDrawingMode = false;
+    }
+  }, [activeTool, brushColor, brushWidth]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => { /* Himanshu implements Phase 5 */ };
