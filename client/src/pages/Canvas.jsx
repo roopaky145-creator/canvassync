@@ -215,8 +215,8 @@ useEffect(() => {
 
       tempShape = null;
       drawingTool = null;
-      window.CANVAS_ACTIVE_TOOL = 'select';
-      setActiveTool('select');
+      // window.CANVAS_ACTIVE_TOOL = 'select';
+      // setActiveTool('select');
     });
 
     // ── ROOPAK'S DELETE HANDLER ──────────────────────────────────
