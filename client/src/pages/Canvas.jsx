@@ -206,7 +206,7 @@ const Canvas = () => {
 
       tempShape.set({ stroke: brushColor, strokeWidth: brushWidth });
       tempShape.setCoords();
-      canvas.renderAll();
+      canvasRef.current.renderAll();
     });
 
     canvas.on('mouse:up', () => {
