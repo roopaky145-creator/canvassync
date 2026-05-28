@@ -300,7 +300,7 @@ const Canvas = () => {
       socket.disconnect();
       canvas.dispose();
     };
-  }, [roomCode]);
+  }, [roomCode,brushColor, brushWidth]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => { /* Himanshu implements Phase 5 */ };
