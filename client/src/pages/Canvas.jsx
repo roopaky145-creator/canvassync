@@ -15,6 +15,13 @@ const Canvas = () => {
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
   const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
+  const currentColorRef = useRef(brushColor);
+  const currentWidthRef = useRef(brushWidth);
+
+  useEffect(() => {
+    currentColorRef.current = brushColor;
+    currentWidthRef.current = brushWidth;
+  }, [brushColor, brushWidth]);
   const lastAddedObjectRef = useRef(null);
   const redoObjectRef = useRef(null);
 
@@ -109,8 +116,8 @@ const Canvas = () => {
         const textObj = new fabric.IText('', {
           left: pointer.x,
           top: pointer.y,
-          fill: brushColor,
-          fontSize: Math.max(16, brushWidth * 5),
+          fill: currentColorRef.current,
+          fontSize: Math.max(16, currentWidthRef.current * 5),
           id: uuidv4(),
           selectable: true
         });
@@ -136,16 +143,16 @@ const Canvas = () => {
       if (tool === 'rect') {
         tempShape = new fabric.Rect({
           left: origX, top: origY, originX: 'left', originY: 'top', width: 0, height: 0,
-          fill: 'transparent', stroke: brushColor, strokeWidth: brushWidth, selectable: false, id: uuidv4()
+          fill: 'transparent', stroke: currentColorRef.current, strokeWidth: currentWidthRef.current, selectable: false, id: uuidv4()
         });
       } else if (tool === 'circle') {
         tempShape = new fabric.Circle({
           left: origX, top: origY, originX: 'center', originY: 'center', radius: 0,
-          fill: 'transparent', stroke: brushColor, strokeWidth: brushWidth, selectable: false, id: uuidv4()
+          fill: 'transparent', stroke: currentColorRef.current, strokeWidth: currentWidthRef.current, selectable: false, id: uuidv4()
         });
       } else if (tool === 'line') {
         tempShape = new fabric.Line([origX, origY, origX, origY], {
-          stroke: brushColor, strokeWidth: brushWidth, selectable: false, id: uuidv4()
+          stroke: currentColorRef.current, strokeWidth: currentWidthRef.current, selectable: false, id: uuidv4()
         });
       }
 
@@ -176,7 +183,7 @@ const Canvas = () => {
         tempShape.set({ x2: pointer.x, y2: pointer.y });
       }
 
-      tempShape.set({ stroke: brushColor, strokeWidth: brushWidth });
+      tempShape.set({ stroke: currentColorRef.current, strokeWidth: currentWidthRef.current });
       tempShape.setCoords();
       canvasRef.current.renderAll();
     });
