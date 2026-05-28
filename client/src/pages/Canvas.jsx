@@ -44,15 +44,15 @@ const Canvas = () => {
   };
 
   useEffect(() => {
-    if (canvasRef.current) {
-      canvasRef.current.isDrawingMode = (activeTool === 'pen');
-      if (activeTool === 'pen') {
-        canvasRef.current.freeDrawingBrush.color = brushColor;
-        canvasRef.current.freeDrawingBrush.width = brushWidth;
+      if (!canvasRef.current) return;
+      if (activeTool === 'pen' || activeTool === 'eraser') {
+          canvasRef.current.isDrawingMode = true;
+          canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
+          canvasRef.current.freeDrawingBrush.width = brushWidth;
+      } else {
+          canvasRef.current.isDrawingMode = false;
       }
-      window.CANVAS_ACTIVE_TOOL = activeTool;
-    }
-  }, [brushColor, brushWidth, activeTool]);
+  }, [activeTool, brushColor, brushWidth]);
 
   useEffect(() => {
     const socket = io(process.env.REACT_APP_BACKEND_URL);
@@ -283,24 +283,14 @@ const Canvas = () => {
       socket.disconnect();
       canvas.dispose();
     };
-  }, [roomCode,brushColor, brushWidth]);
+  }, [roomCode]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => { /* Himanshu implements Phase 5 */ };
 
   return (
     <div style={{ position: 'relative' }}>
-      <Toolbar 
-        activeTool={activeTool} 
-        setActiveTool={setActiveTool} 
-        brushColor={brushColor} 
-        setBrushColor={setBrushColor} 
-        brushWidth={brushWidth} 
-        setBrushWidth={setBrushWidth} 
-        handleUndo={handleUndo}
-        handleRedo={handleRedo}
-        onSave={handleSave}
-      />
+      <Toolbar activeTool="{activeTool}" onSave="{handleSave}" setActiveTool="{setActiveTool}"/>
       <canvas id="canvas-el" width={1200} height={700} />
     </div>
   );
