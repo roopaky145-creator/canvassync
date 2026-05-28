@@ -1,51 +1,133 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { MousePointer, Square, Circle, PenTool, Eraser, Minus, Type, Undo, Redo, Palette, Download } from 'lucide-react';
 
-const Toolbar = ({ activeTool, setActiveTool, brushColor, setBrushColor, brushWidth, setBrushWidth }) => {
-  const tools = ['select', 'rect', 'circle', 'pen', 'eraser'];
+const Toolbar = ({ activeTool, setActiveTool, onSave, handleUndo, handleRedo, brushColor, setBrushColor, brushWidth, setBrushWidth }) => {
+  const [showSettings, setShowSettings] = useState(false);
 
-  const handleToolClick = (tool) => {
-    setActiveTool(tool);
-    window.CANVAS_ACTIVE_TOOL = tool;
+  const tools = [
+    { id: 'select', icon: <MousePointer size={20} />, title: 'Select' },
+    { id: 'rect', icon: <Square size={20} />, title: 'Rectangle' },
+    { id: 'circle', icon: <Circle size={20} />, title: 'Circle' },
+    { id: 'line', icon: <Minus size={20} />, title: 'Line' },
+    { id: 'pen', icon: <PenTool size={20} />, title: 'Pen' },
+    { id: 'eraser', icon: <Eraser size={20} />, title: 'Eraser' },
+    { id: 'text', icon: <Type size={20} />, title: 'Text' },
+  ];
+
+  const handleToolClick = (toolId) => {
+    setActiveTool(toolId);
+    window.CANVAS_ACTIVE_TOOL = toolId;
   };
 
   return (
-    <div style={{ display: 'flex', gap: '10px', padding: '10px', backgroundColor: '#f0f0f0', alignItems: 'center', marginBottom: '10px' }}>
-      {tools.map((tool) => (
+    <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
+      <div style={{ 
+        display: 'flex', 
+        gap: '8px', 
+        padding: '8px 12px', 
+        backgroundColor: '#ffffff', 
+        borderRadius: '12px', 
+        boxShadow: '0 4px 6px rgba(0,0,0,0.1)', 
+        alignItems: 'center' 
+      }}>
+        {tools.map((tool) => (
+          <button
+            key={tool.id}
+            title={tool.title}
+            onClick={() => handleToolClick(tool.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '36px',
+              height: '36px',
+              border: 'none',
+              borderRadius: '8px',
+              backgroundColor: activeTool === tool.id ? '#e2e8f0' : 'transparent',
+              color: activeTool === tool.id ? '#0f172a' : '#64748b',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            {tool.icon}
+          </button>
+        ))}
+
+        <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0', margin: '0 4px' }} />
+
         <button
-          key={tool}
-          onClick={() => handleToolClick(tool)}
+          title="Color & Width"
+          onClick={() => setShowSettings(!showSettings)}
           style={{
-            padding: '5px 10px',
-            backgroundColor: activeTool === tool ? '#d0d0d0' : '#ffffff',
-            border: activeTool === tool ? '2px solid #333' : '1px solid #ccc',
-            fontWeight: activeTool === tool ? 'bold' : 'normal',
-            cursor: 'pointer',
-            textTransform: 'capitalize'
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '36px', height: '36px', border: 'none', borderRadius: '8px',
+            backgroundColor: showSettings ? '#e2e8f0' : 'transparent',
+            color: showSettings ? '#0f172a' : '#64748b', cursor: 'pointer'
           }}
         >
-          {tool === 'rect' ? 'Rectangle' : tool === 'circle' ? 'Circle' : tool}
+          <Palette size={20} />
         </button>
-      ))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-        <label htmlFor="brushColor">Color:</label>
-        <input 
-          id="brushColor"
-          type="color" 
-          value={brushColor} 
-          onChange={(e) => setBrushColor(e.target.value)} 
-        />
+
+        <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0', margin: '0 4px' }} />
+
+        <button
+          title="Undo"
+          onClick={handleUndo}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '36px', height: '36px', border: 'none', borderRadius: '8px',
+            backgroundColor: 'transparent', color: '#64748b', cursor: 'pointer'
+          }}
+        >
+          <Undo size={20} />
+        </button>
+        
+        <button
+          title="Redo"
+          onClick={handleRedo}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '36px', height: '36px', border: 'none', borderRadius: '8px',
+            backgroundColor: 'transparent', color: '#64748b', cursor: 'pointer'
+          }}
+        >
+          <Redo size={20} />
+        </button>
+
+        <div className="w-px h-6 bg-gray-300 mx-2" />
+        <button onClick={onSave} className="p-2 rounded hover:bg-gray-200" title="Save Board">
+            <Download size={20} />
+        </button>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-        <label htmlFor="brushWidth">Width: {brushWidth}</label>
-        <input 
-          id="brushWidth"
-          type="range" 
-          min="1" 
-          max="20" 
-          value={brushWidth} 
-          onChange={(e) => setBrushWidth(Number(e.target.value))} 
-        />
-      </div>
+
+      {showSettings && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 10px)', right: '100px',
+          backgroundColor: '#ffffff', borderRadius: '12px', padding: '16px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+            <label style={{ fontSize: '14px', color: '#334155' }}>Color</label>
+            <input 
+              type="color" 
+              value={brushColor} 
+              onChange={(e) => setBrushColor(e.target.value)} 
+              style={{ border: 'none', width: '28px', height: '28px', padding: 0, cursor: 'pointer', borderRadius: '4px' }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+            <label style={{ fontSize: '14px', color: '#334155' }}>Width: {brushWidth}</label>
+            <input 
+              type="range" 
+              min="1" 
+              max="20" 
+              value={brushWidth} 
+              onChange={(e) => setBrushWidth(Number(e.target.value))} 
+              style={{ width: '100px' }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

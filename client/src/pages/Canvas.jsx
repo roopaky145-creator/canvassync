@@ -13,19 +13,42 @@ const Canvas = () => {
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(2);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
+const currentColorRef = useRef(brushColor);
+const currentWidthRef = useRef(brushWidth);
+
+useEffect(() => {
+    currentColorRef.current = brushColor;
+    currentWidthRef.current = brushWidth;
+}, [brushColor, brushWidth]);
   const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
   const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
+  const lastAddedObjectRef = useRef(null);
+  const redoObjectRef = useRef(null);
 
-  useEffect(() => {
-    if (canvasRef.current) {
-      canvasRef.current.isDrawingMode = (activeTool === 'pen');
-      if (activeTool === 'pen') {
-        canvasRef.current.freeDrawingBrush.color = brushColor;
-        canvasRef.current.freeDrawingBrush.width = brushWidth;
+  const handleUndo = () => {
+    if (lastAddedObjectRef.current) {
+      const obj = lastAddedObjectRef.current;
+      if (canvasRef.current && canvasRef.current.getObjects().includes(obj)) {
+        canvasRef.current.remove(obj);
+        redoObjectRef.current = obj;
+        if (socketRef.current && obj.id && !isReceivingUpdate.current) {
+          socketRef.current.emit('canvas_delete', { roomCode, objectId: obj.id });
+        }
+        lastAddedObjectRef.current = null;
       }
-      window.CANVAS_ACTIVE_TOOL = activeTool;
     }
-  }, [brushColor, brushWidth, activeTool]);
+  };
+
+  const handleRedo = () => {
+    if (redoObjectRef.current) {
+      const obj = redoObjectRef.current;
+      if (canvasRef.current) {
+        canvasRef.current.add(obj);
+        lastAddedObjectRef.current = obj;
+        redoObjectRef.current = null;
+      }
+    }
+  };
 
   useEffect(() => {
     const socket = io(process.env.REACT_APP_BACKEND_URL);
@@ -64,6 +87,8 @@ const Canvas = () => {
 
     canvas.on('path:created', (e) => {
       if (!e.path.id) e.path.set('id', uuidv4());
+      lastAddedObjectRef.current = e.path;
+      redoObjectRef.current = null;
     });
 
     canvas.on('mouse:down', (e) => {
@@ -74,7 +99,7 @@ const Canvas = () => {
     });
 
     // ── ROOPAK'S SHAPE DRAWING LOGIC ─────────────────────────────
-    const supportedDrawingTools = new Set(['rect', 'circle']);
+    const supportedDrawingTools = new Set(['rect', 'circle', 'line', 'text']);
     let isDrawingShape = false;
     let drawingTool = null;
     let origX = 0;
@@ -85,8 +110,30 @@ const Canvas = () => {
       const tool = window.CANVAS_ACTIVE_TOOL || 'select';
       if (!supportedDrawingTools.has(tool)) return;
 
-      canvas.discardActiveObject();
       const pointer = canvas.getPointer(o.e);
+
+      if (tool === 'text') {
+        const textObj = new fabric.IText('', {
+          left: pointer.x,
+          top: pointer.y,
+          fill: currentColorRef.current,
+          fontSize: Math.max(16, currentWidthRef.current * 5),
+          id: uuidv4(),
+          selectable: true
+        });
+        canvas.add(textObj);
+        canvas.setActiveObject(textObj);
+        textObj.enterEditing();
+        
+        lastAddedObjectRef.current = textObj;
+        redoObjectRef.current = null;
+        
+        window.CANVAS_ACTIVE_TOOL = 'select';
+        setActiveTool('select');
+        return;
+      }
+
+      canvas.discardActiveObject();
 
       isDrawingShape = true;
       drawingTool = tool;
@@ -95,30 +142,17 @@ const Canvas = () => {
 
       if (tool === 'rect') {
         tempShape = new fabric.Rect({
-          left: origX,
-          top: origY,
-          originX: 'left',
-          originY: 'top',
-          width: 0,
-          height: 0,
-          fill: 'transparent',
-          stroke: 'black',
-          strokeWidth: 2,
-          selectable: false,
-          id: uuidv4()
+          left: origX, top: origY, originX: 'left', originY: 'top', width: 0, height: 0,
+          fill: 'transparent', stroke: currentColorRef.current, strokeWidth: currentWidthRef.current, selectable: false, id: uuidv4()
         });
-      } else {
+      } else if (tool === 'circle') {
         tempShape = new fabric.Circle({
-          left: origX,
-          top: origY,
-          originX: 'center',
-          originY: 'center',
-          radius: 0,
-          fill: 'transparent',
-          stroke: 'black',
-          strokeWidth: 2,
-          selectable: false,
-          id: uuidv4()
+          left: origX, top: origY, originX: 'center', originY: 'center', radius: 0,
+          fill: 'transparent', stroke: currentColorRef.current, strokeWidth: currentWidthRef.current, selectable: false, id: uuidv4()
+        });
+      } else if (tool === 'line') {
+        tempShape = new fabric.Line([origX, origY, origX, origY], {
+          stroke: currentColorRef.current, strokeWidth: currentWidthRef.current, selectable: false, id: uuidv4()
         });
       }
 
@@ -145,10 +179,13 @@ const Canvas = () => {
           top: origY + dy / 2,
           radius: Math.max(Math.abs(dx), Math.abs(dy)) / 2
         });
+      } else if (drawingTool === 'line') {
+        tempShape.set({ x2: pointer.x, y2: pointer.y });
       }
 
+      tempShape.set({ stroke: currentColorRef.current, strokeWidth: currentWidthRef.current });
       tempShape.setCoords();
-      canvas.renderAll();
+      canvasRef.current.renderAll();
     });
 
     canvas.on('mouse:up', () => {
@@ -167,7 +204,13 @@ const Canvas = () => {
       } else {
         tempShape.setCoords();
         tempShape.set({ selectable: true });
-        socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        
+        lastAddedObjectRef.current = tempShape;
+        redoObjectRef.current = null;
+
+        if (!isReceivingUpdate.current) {
+          socketRef.current.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        }
       }
 
       tempShape = null;
@@ -238,21 +281,35 @@ const Canvas = () => {
     };
   }, [roomCode]);
 
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    
+    if (activeTool === 'pen' || activeTool === 'eraser') {
+      canvasRef.current.isDrawingMode = true;
+      canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
+      canvasRef.current.freeDrawingBrush.width = brushWidth;
+    } else {
+      canvasRef.current.isDrawingMode = false;
+    }
+  }, [activeTool, brushColor, brushWidth]);
+
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => { /* Himanshu implements Phase 5 */ };
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
       <Toolbar 
         activeTool={activeTool} 
         setActiveTool={setActiveTool} 
+        onSave={handleSave} 
+        handleUndo={handleUndo} 
+        handleRedo={handleRedo} 
         brushColor={brushColor} 
         setBrushColor={setBrushColor} 
         brushWidth={brushWidth} 
         setBrushWidth={setBrushWidth} 
       />
       <canvas id="canvas-el" width={1200} height={700} />
-      <button onClick={handleSave}>Save Board</button>
     </div>
   );
 };
