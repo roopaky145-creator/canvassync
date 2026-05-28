@@ -38,9 +38,6 @@ const Canvas = () => {
       if (canvasRef.current) {
         canvasRef.current.add(obj);
         lastAddedObjectRef.current = obj;
-        if (socketRef.current && obj.id && !isReceivingUpdate.current) {
-          socketRef.current.emit('canvas_update', { roomCode, objectData: obj.toJSON(['id']) });
-        }
         redoObjectRef.current = null;
       }
     }
@@ -207,6 +204,7 @@ const Canvas = () => {
         tempShape._calcDimensions();
       }
 
+      tempShape.set({ stroke: brushColor, strokeWidth: brushWidth });
       tempShape.setCoords();
       canvas.renderAll();
     });
@@ -231,7 +229,9 @@ const Canvas = () => {
         lastAddedObjectRef.current = tempShape;
         redoObjectRef.current = null;
 
-        socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        if (!isReceivingUpdate.current) {
+          socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+        }
       }
 
       tempShape = null;
