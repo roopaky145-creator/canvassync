@@ -230,7 +230,7 @@ const Canvas = () => {
         redoObjectRef.current = null;
 
         if (!isReceivingUpdate.current) {
-          socket.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
+          socketRef.current.emit('canvas_update', { roomCode, objectData: tempShape.toJSON(['id']) });
         }
       }
 
