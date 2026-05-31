@@ -29,11 +29,9 @@ useEffect(() => {
     if (lastAddedObjectRef.current) {
       const obj = lastAddedObjectRef.current;
       if (canvasRef.current && canvasRef.current.getObjects().includes(obj)) {
+        // Let object:removed handle the socket emit — just guard against double-emit
         canvasRef.current.remove(obj);
         redoObjectRef.current = obj;
-        if (socketRef.current && obj.id && !isReceivingUpdate.current) {
-          socketRef.current.emit('canvas_delete', { roomCode, objectId: obj.id });
-        }
         lastAddedObjectRef.current = null;
       }
     }
@@ -282,6 +280,9 @@ useEffect(() => {
   }, [roomCode]);
 
   useEffect(() => {
+    // Single source of truth for the global tool flag — eliminates stale leaks across remounts
+    window.CANVAS_ACTIVE_TOOL = activeTool;
+
     if (!canvasRef.current) return;
     
     if (activeTool === 'pen' || activeTool === 'eraser') {
@@ -291,6 +292,8 @@ useEffect(() => {
     } else {
       canvasRef.current.isDrawingMode = false;
     }
+
+    return () => { window.CANVAS_ACTIVE_TOOL = 'select'; };
   }, [activeTool, brushColor, brushWidth]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
