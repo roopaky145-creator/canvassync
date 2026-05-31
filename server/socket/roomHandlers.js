@@ -17,6 +17,37 @@ function registerRoomHandlers(io, socket) {
     activeLocks.delete(data.objectId);
     socket.to(data.roomCode).emit('canvas_delete', { objectId: data.objectId });
   });
+
+  // Acquire a lock — first come, first served
+  socket.on('acquire_lock', (data) => {
+    if (!activeLocks.has(data.object_id)) {
+      activeLocks.set(data.object_id, socket.id);
+      io.to(data.roomCode).emit('lock_acquired', {
+        object_id: data.object_id,
+        lockedBy: socket.id
+      });
+    }
+  });
+
+  // Release a lock — only the owner can release
+  socket.on('release_lock', (data) => {
+    if (activeLocks.get(data.object_id) === socket.id) {
+      activeLocks.delete(data.object_id);
+      io.to(data.roomCode).emit('lock_released', { object_id: data.object_id });
+    }
+  });
+
+  // On disconnect — release all locks held by this socket
+  socket.on('disconnect', () => {
+    const roomCode = socket.roomCode;
+    if (!roomCode) return;
+    activeLocks.forEach((ownerId, objectId) => {
+      if (ownerId === socket.id) {
+        activeLocks.delete(objectId);
+      }
+    });
+    io.to(roomCode).emit('user_disconnected_locks_cleared', socket.id);
+  });
 }
 
 module.exports = { registerRoomHandlers, activeLocks };
