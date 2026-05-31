@@ -25,6 +25,11 @@ useEffect(() => {
   const lastAddedObjectRef = useRef(null);
   const redoObjectRef = useRef(null);
 
+  // Reset tool state when switching rooms without unmount
+  useEffect(() => {
+    setActiveTool('select');
+  }, [roomCode]);
+
   const handleUndo = () => {
     if (lastAddedObjectRef.current) {
       const obj = lastAddedObjectRef.current;
