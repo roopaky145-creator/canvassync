@@ -8,13 +8,27 @@ function registerRoomHandlers(io, socket) {
   });
 
   socket.on('canvas_update', (data) => {
-    if (!data?.roomCode || !socket.rooms.has(data.roomCode)) return;
+    if (!data?.roomCode || !socket.rooms.has(data.roomCode) || !data?.objectData?.id) return;
+    
+    // Server Trust: Reject update if locked by another user
+    const lockKey = `${data.roomCode}::${data.objectData.id}`;
+    if (activeLocks.has(lockKey) && activeLocks.get(lockKey) !== socket.id) {
+      return;
+    }
+    
     socket.to(data.roomCode).emit('canvas_update', data);
   });
 
   socket.on('canvas_delete', (data) => {
     if (!data?.roomCode || !data?.objectId || !socket.rooms.has(data.roomCode)) return;
-    activeLocks.delete(`${data.roomCode}::${data.objectId}`);
+    
+    // Server Trust: Reject delete if locked by another user
+    const lockKey = `${data.roomCode}::${data.objectId}`;
+    if (activeLocks.has(lockKey) && activeLocks.get(lockKey) !== socket.id) {
+      return;
+    }
+
+    activeLocks.delete(lockKey);
     socket.to(data.roomCode).emit('canvas_delete', { objectId: data.objectId });
   });
 
