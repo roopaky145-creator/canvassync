@@ -294,11 +294,12 @@ useEffect(() => {
 
     // ── PHASE 3: HIMANSHU ADDS LOCKING LISTENERS HERE ────────────
     socket.on('lock_acquired', (data) => {
+      if (data.lockedBy === socket.id) return;
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (obj) {
         if (obj.selectable === false) return;
         obj.set({ _originalOpacity: obj.opacity || 1 });
-        obj.set({ selectable: false, evented: false, opacity: 0.3 });
+        obj.set({ selectable: false, evented: false, opacity: 0.3, _lockedBy: data.lockedBy });
         canvas.renderAll();
       }
     });
@@ -309,6 +310,22 @@ useEffect(() => {
         obj.set({ selectable: true, evented: true, opacity: obj._originalOpacity || 1 });
         canvas.renderAll();
       }
+    });
+
+    socket.on('user_disconnected_locks_cleared', (data) => {
+      let requiresRender = false;
+      canvas.getObjects().forEach((obj) => {
+        if (obj._lockedBy === data.socketId) {
+          obj.set({ 
+            selectable: true, 
+            evented: true, 
+            opacity: obj._originalOpacity || 1, 
+            _lockedBy: null 
+          });
+          requiresRender = true;
+        }
+      });
+      if (requiresRender) canvas.renderAll();
     });
 
     // ── PHASE 4: HIMANSHU ADDS ai_image_generated LISTENER HERE ──
