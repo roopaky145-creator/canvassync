@@ -225,23 +225,23 @@ useEffect(() => {
     canvas.on('selection:created', (e) => {
       const obj = e.selected[0];
       if (obj && obj.id) {
-        socket.emit('lock_object', { roomCode, objectId: obj.id });
+        socket.emit('acquire_lock', { roomCode, object_id: obj.id });
       }
     });
 
     canvas.on('selection:updated', (e) => {
       if (e.deselected && e.deselected[0] && e.deselected[0].id) {
-        socket.emit('unlock_object', { roomCode, objectId: e.deselected[0].id });
+        socket.emit('release_lock', { roomCode, object_id: e.deselected[0].id });
       }
       const obj = e.selected[0];
       if (obj && obj.id) {
-        socket.emit('lock_object', { roomCode, objectId: obj.id });
+        socket.emit('acquire_lock', { roomCode, object_id: obj.id });
       }
     });
 
     canvas.on('selection:cleared', (e) => {
       if (e.deselected && e.deselected[0] && e.deselected[0].id) {
-        socket.emit('unlock_object', { roomCode, objectId: e.deselected[0].id });
+        socket.emit('release_lock', { roomCode, object_id: e.deselected[0].id });
       }
     });
 
@@ -293,17 +293,18 @@ useEffect(() => {
     });
 
     // ── PHASE 3: HIMANSHU ADDS LOCKING LISTENERS HERE ────────────
-    socket.on('object_locked', (data) => {
-      const obj = canvas.getObjects().find(o => o.id === data.objectId);
+    socket.on('lock_acquired', (data) => {
+      const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (obj) {
+        if (obj.selectable === false) return;
         obj.set({ _originalOpacity: obj.opacity || 1 });
         obj.set({ selectable: false, evented: false, opacity: 0.3 });
         canvas.renderAll();
       }
     });
 
-    socket.on('object_unlocked', (data) => {
-      const obj = canvas.getObjects().find(o => o.id === data.objectId);
+    socket.on('lock_released', (data) => {
+      const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (obj) {
         obj.set({ selectable: true, evented: true, opacity: obj._originalOpacity || 1 });
         canvas.renderAll();
