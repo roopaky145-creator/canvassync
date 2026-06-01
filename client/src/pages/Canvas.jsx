@@ -222,6 +222,29 @@ useEffect(() => {
       // setActiveTool('select');
     });
 
+    canvas.on('selection:created', (e) => {
+      const obj = e.selected[0];
+      if (obj && obj.id) {
+        socket.emit('acquire_lock', { roomCode, object_id: obj.id });
+      }
+    });
+
+    canvas.on('selection:updated', (e) => {
+      if (e.deselected && e.deselected[0] && e.deselected[0].id) {
+        socket.emit('release_lock', { roomCode, object_id: e.deselected[0].id });
+      }
+      const obj = e.selected[0];
+      if (obj && obj.id) {
+        socket.emit('acquire_lock', { roomCode, object_id: obj.id });
+      }
+    });
+
+    canvas.on('selection:cleared', (e) => {
+      if (e.deselected && e.deselected[0] && e.deselected[0].id) {
+        socket.emit('release_lock', { roomCode, object_id: e.deselected[0].id });
+      }
+    });
+
     // ── ROOPAK'S DELETE HANDLER ──────────────────────────────────
     const handleKeyDown = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -239,6 +262,7 @@ useEffect(() => {
 
     // ── RECEIVE SIDE ─────────────────────────────────────────────
     socket.on('canvas_update', (data) => {
+      if (canvas.getActiveObject()?.id === data.objectData.id) return;
       isReceivingUpdate.current = true;
       const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
@@ -269,8 +293,40 @@ useEffect(() => {
     });
 
     // ── PHASE 3: HIMANSHU ADDS LOCKING LISTENERS HERE ────────────
-    // selection:created, selection:cleared, selection:updated
-    // lock_acquired, lock_released, user_disconnected_locks_cleared
+    socket.on('lock_acquired', (data) => {
+      if (data.lockedBy === socket.id) return;
+      const obj = canvas.getObjects().find(o => o.id === data.object_id);
+      if (obj) {
+        if (obj.selectable === false) return;
+        obj.set({ _originalOpacity: obj.opacity || 1 });
+        obj.set({ selectable: false, evented: false, opacity: 0.3, _lockedBy: data.lockedBy });
+        canvas.renderAll();
+      }
+    });
+
+    socket.on('lock_released', (data) => {
+      const obj = canvas.getObjects().find(o => o.id === data.object_id);
+      if (obj) {
+        obj.set({ selectable: true, evented: true, opacity: obj._originalOpacity || 1 });
+        canvas.renderAll();
+      }
+    });
+
+    socket.on('user_disconnected_locks_cleared', (disconnectedSocketId) => {
+      let requiresRender = false;
+      canvas.getObjects().forEach((obj) => {
+        if (obj._lockedBy === disconnectedSocketId) {
+          obj.set({ 
+            selectable: true, 
+            evented: true, 
+            opacity: obj._originalOpacity || 1, 
+            _lockedBy: null 
+          });
+          requiresRender = true;
+        }
+      });
+      if (requiresRender) canvas.renderAll();
+    });
 
     // ── PHASE 4: HIMANSHU ADDS ai_image_generated LISTENER HERE ──
 
