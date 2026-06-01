@@ -262,7 +262,10 @@ useEffect(() => {
 
     // ── RECEIVE SIDE ─────────────────────────────────────────────
     socket.on('canvas_update', (data) => {
-      if (canvas.getActiveObject()?.id === data.objectData.id) return;
+      // Only skip if WE are the lock owner (i.e., we're actively moving it).
+      // If someone else owns the lock and sends an update, we still apply it.
+      const activeObj = canvas.getActiveObject();
+      if (activeObj?.id === data.objectData.id && !activeObj._lockedBy) return;
       isReceivingUpdate.current = true;
       const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
@@ -279,7 +282,13 @@ useEffect(() => {
           
           // Re-enforce lock visual state if this object is currently locked by someone else
           if (existing._lockedBy && existing._lockedBy !== socket.id) {
-            existing.set({ selectable: false, evented: false, opacity: 0.3 });
+            existing.set({
+              selectable: false,
+              evented: false,
+              opacity: 0.5,
+              stroke: 'red',
+              strokeWidth: existing._originalStrokeWidth || existing.strokeWidth || 0
+            });
           }
           
           existing.setCoords();
@@ -312,8 +321,20 @@ useEffect(() => {
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (obj) {
         if (obj.selectable === false) return;
-        obj.set({ _originalOpacity: obj.opacity || 1 });
-        obj.set({ selectable: false, evented: false, opacity: 0.3, _lockedBy: data.lockedBy });
+        // Save original appearance for restoration on unlock
+        obj.set({
+          _originalOpacity: obj.opacity || 1,
+          _originalStroke: obj.stroke,
+          _originalStrokeWidth: obj.strokeWidth || 0
+        });
+        // Checkpoint spec: red stroke + 0.5 opacity
+        obj.set({
+          selectable: false,
+          evented: false,
+          opacity: 0.5,
+          stroke: 'red',
+          _lockedBy: data.lockedBy
+        });
         canvas.renderAll();
       }
     });
@@ -321,7 +342,16 @@ useEffect(() => {
     socket.on('lock_released', (data) => {
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (obj) {
-        obj.set({ selectable: true, evented: true, opacity: obj._originalOpacity || 1 });
+        // Restore original appearance AND clear _lockedBy to prevent
+        // canvas_update handler from re-applying lock styling
+        obj.set({
+          selectable: true,
+          evented: true,
+          opacity: obj._originalOpacity || 1,
+          stroke: obj._originalStroke,
+          strokeWidth: obj._originalStrokeWidth || obj.strokeWidth || 0,
+          _lockedBy: null
+        });
         canvas.renderAll();
       }
     });
@@ -334,6 +364,8 @@ useEffect(() => {
             selectable: true, 
             evented: true, 
             opacity: obj._originalOpacity || 1, 
+            stroke: obj._originalStroke,
+            strokeWidth: obj._originalStrokeWidth || obj.strokeWidth || 0,
             _lockedBy: null 
           });
           requiresRender = true;
