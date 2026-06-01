@@ -267,17 +267,15 @@ useEffect(() => {
       const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
         try {
-          // Fix Fabric.js Line sync bug by forcing coordinate update before bounding box update
           if (data.objectData.type === 'line') {
-            existing.set({
-              x1: data.objectData.x1,
-              y1: data.objectData.y1,
-              x2: data.objectData.x2,
-              y2: data.objectData.y2
-            });
+            // Fix Fabric.js Line sync by separating coordinates from bounding box
+            const { x1, y1, x2, y2, left, top, ...rest } = data.objectData;
+            existing.set(rest);               // Apply styling first
+            existing.set({ x1, y1, x2, y2 }); // Apply points
+            existing.set({ left, top });      // Force bounding box position
+          } else {
+            existing.set(data.objectData);
           }
-          
-          existing.set(data.objectData);
           
           // Re-enforce lock visual state if this object is currently locked by someone else
           if (existing._lockedBy && existing._lockedBy !== socket.id) {
