@@ -312,10 +312,10 @@ useEffect(() => {
       }
     });
 
-    socket.on('user_disconnected_locks_cleared', (data) => {
+    socket.on('user_disconnected_locks_cleared', (disconnectedSocketId) => {
       let requiresRender = false;
       canvas.getObjects().forEach((obj) => {
-        if (obj._lockedBy === data.socketId) {
+        if (obj._lockedBy === disconnectedSocketId) {
           obj.set({ 
             selectable: true, 
             evented: true, 
