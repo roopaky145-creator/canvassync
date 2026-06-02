@@ -286,7 +286,6 @@ useEffect(() => {
               selectable: false,
               evented: false,
               opacity: 0.5,
-              stroke: 'red',
               strokeWidth: existing._originalStrokeWidth || existing.strokeWidth || 0
             });
           }
@@ -332,7 +331,6 @@ useEffect(() => {
           selectable: false,
           evented: false,
           opacity: 0.5,
-          stroke: 'red',
           _lockedBy: data.lockedBy
         });
         canvas.renderAll();
