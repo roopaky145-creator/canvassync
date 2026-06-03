@@ -17,6 +17,10 @@ module.exports = (io) => {
         return res.status(400).json({ error: 'prompt and roomCode are required' });
       }
 
+      if (prompt.length > 4000) {
+        return res.status(400).json({ error: 'prompt must be 4000 characters or fewer' });
+      }
+
       if (!process.env.AI_API_KEY) {
         return res.status(500).json({ error: 'AI_API_KEY is not configured on the server' });
       }
