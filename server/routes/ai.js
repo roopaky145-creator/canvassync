@@ -13,11 +13,14 @@ module.exports = (io) => {
   router.post('/generate', async (req, res) => {
     try {
       const { prompt, roomCode } = req.body;
-      if (!prompt || !roomCode) {
+      const promptText = typeof prompt === 'string' ? prompt.trim() : '';
+      const targetRoom = typeof roomCode === 'string' ? roomCode.trim() : '';
+
+      if (!promptText || !targetRoom) {
         return res.status(400).json({ error: 'prompt and roomCode are required' });
       }
 
-      if (prompt.trim().length > 4000) {
+      if (promptText.length > 4000) {
         return res.status(400).json({ error: 'prompt must be 4000 characters or fewer' });
       }
 
@@ -28,7 +31,7 @@ module.exports = (io) => {
       const client = new InferenceClient(process.env.AI_API_KEY);
       const image = await client.textToImage({
         model: process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
-        inputs: prompt.trim(),
+        inputs: promptText,
         provider: process.env.AI_PROVIDER || 'auto',
       });
 
@@ -37,7 +40,7 @@ module.exports = (io) => {
       const base64 = Buffer.from(arrayBuffer).toString('base64');
 
       // Broadcast to all clients in this room
-      io.to(roomCode).emit('ai_image_generated', { base64 });
+      io.to(targetRoom).emit('ai_image_generated', { base64 });
       res.json({ success: true });
       
     } catch (err) {

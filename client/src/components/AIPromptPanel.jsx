@@ -37,6 +37,7 @@ const AIPromptPanel = ({ roomCode }) => {
         value={prompt}
         onChange={e => setPrompt(e.target.value)}
         placeholder="Describe an image to generate (e.g. 'a futuristic city at sunset')..."
+        maxLength={4000}
         disabled={loading}
       />
       <button 

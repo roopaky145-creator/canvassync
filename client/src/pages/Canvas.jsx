@@ -8,6 +8,13 @@ import { fabric } from 'fabric';
 import Toolbar from '../components/Toolbar';
 import AIPromptPanel from '../components/AIPromptPanel';
 
+const AI_IMAGE_SIZE_LIMIT_BYTES = 200 * 1024;
+
+const getBase64ByteSize = (base64) => {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+};
+
 const Canvas = () => {
   const { code: roomCode } = useParams();
   const [activeTool, setActiveTool] = useState('select');
@@ -375,10 +382,20 @@ useEffect(() => {
 
     // ── PHASE 4: HIMANSHU ADDS ai_image_generated LISTENER HERE ──
     socket.on('ai_image_generated', (data) => {
-      if (data.base64.length > 204800) {
+      if (!data?.base64) {
+        console.warn('[CanvasSync] AI image payload missing base64 data.');
+        return;
+      }
+
+      if (getBase64ByteSize(data.base64) > AI_IMAGE_SIZE_LIMIT_BYTES) {
         console.warn('[CanvasSync] AI image exceeds 200KB. It will not be persisted on save.');
       }
-      fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img) => {
+      fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img, isError) => {
+        if (isError || !img || !img.width || !img.height) {
+          console.warn('[CanvasSync] Could not load generated AI image.');
+          return;
+        }
+
         const maxImageSize = Math.min(320, canvas.getWidth() * 0.35, canvas.getHeight() * 0.35);
         const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
         const scaledWidth = img.width * scale;
