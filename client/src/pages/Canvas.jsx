@@ -6,6 +6,7 @@ import { throttle } from 'lodash';
 import { fabric } from 'fabric';
 
 import Toolbar from '../components/Toolbar';
+import AIPromptPanel from '../components/AIPromptPanel';
 
 const Canvas = () => {
   const { code: roomCode } = useParams();
@@ -373,6 +374,37 @@ useEffect(() => {
     });
 
     // ── PHASE 4: HIMANSHU ADDS ai_image_generated LISTENER HERE ──
+    socket.on('ai_image_generated', (data) => {
+      if (data.base64.length > 204800) {
+        console.warn('[CanvasSync] AI image exceeds 200KB. It will not be persisted on save.');
+      }
+      fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img) => {
+        const maxImageSize = Math.min(320, canvas.getWidth() * 0.35, canvas.getHeight() * 0.35);
+        const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
+        const gap = 24;
+        const margin = 50;
+        const aiImageCount = canvas.getObjects().filter(obj => obj.type === 'image').length;
+        const columns = Math.max(1, Math.floor((canvas.getWidth() - margin * 2) / (scaledWidth + gap)));
+        const column = aiImageCount % columns;
+        const row = Math.floor(aiImageCount / columns);
+        const left = margin + column * (scaledWidth + gap);
+        const top = margin + row * (scaledHeight + gap);
+
+        img.set({
+          left,
+          top: Math.min(top, canvas.getHeight() - scaledHeight - margin),
+          id: uuidv4(),
+          scaleX: scale,
+          scaleY: scale
+        });
+        isReceivingUpdate.current = true;
+        canvas.add(img);
+        canvas.renderAll();
+        isReceivingUpdate.current = false;
+      });
+    });
 
     // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
 
@@ -417,6 +449,7 @@ useEffect(() => {
         brushWidth={brushWidth} 
         setBrushWidth={setBrushWidth} 
       />
+      <AIPromptPanel roomCode={roomCode} />
       <canvas id="canvas-el" width={1200} height={700} />
     </div>
   );

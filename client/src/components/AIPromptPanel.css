@@ -1,0 +1,88 @@
+.ai-prompt-panel {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(30, 32, 40, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 20px;
+  width: 320px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #fff;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.ai-prompt-panel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+}
+
+.ai-prompt-header {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  background: linear-gradient(135deg, #a8c0ff, #3f2b96);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.ai-prompt-input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #fff;
+  font-size: 14px;
+  resize: none;
+  height: 60px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.ai-prompt-input:focus {
+  border-color: rgba(168, 192, 255, 0.6);
+}
+
+.ai-prompt-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ai-prompt-button {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border: none;
+  border-radius: 8px;
+  padding: 12px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+.ai-prompt-button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.ai-prompt-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.ai-prompt-button:disabled {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.3);
+  cursor: not-allowed;
+}
+
+.ai-prompt-error {
+  color: #ff6b6b;
+  font-size: 12px;
+  margin: 0;
+  text-align: center;
+}
