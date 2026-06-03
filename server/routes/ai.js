@@ -17,7 +17,7 @@ module.exports = (io) => {
         return res.status(400).json({ error: 'prompt and roomCode are required' });
       }
 
-      if (prompt.length > 4000) {
+      if (prompt.trim().length > 4000) {
         return res.status(400).json({ error: 'prompt must be 4000 characters or fewer' });
       }
 
