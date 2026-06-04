@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
 import './AIPromptPanel.css';
 
+const getDisplayError = (message) => {
+  const text = message?.trim();
+  if (!text) return 'AI generation failed. Please try again in a few moments.';
+
+  if (/invalid|unauthorized|password|AI_API_KEY/i.test(text)) {
+    return text;
+  }
+
+  // Catch all transient / network / rate-limit / HF-specific errors
+  if (/fetch|network|timeout|rate|limit|tempor|unavailable|provider|503|429|402|500|failed|loading|busy|overloaded|quota|ENOTFOUND|timed out/i.test(text)) {
+    return 'AI generation failed. Please try again in a few moments.';
+  }
+
+  return text;
+};
+
 const AIPromptPanel = ({ roomCode }) => {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,7 +39,7 @@ const AIPromptPanel = ({ roomCode }) => {
       // Clear prompt on success (optional)
       setPrompt('');
     } catch (e) {
-      setError(e.message);
+      setError(getDisplayError(e.message));
     } finally {
       setLoading(false);
     }
