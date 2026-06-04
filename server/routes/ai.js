@@ -3,10 +3,20 @@ const { InferenceClient } = require('@huggingface/inference');
 const router = express.Router();
 
 const DEFAULT_IMAGE_MODEL = 'black-forest-labs/FLUX.1-schnell';
+const DEFAULT_AI_TIMEOUT_MS = 60000;
 
 function getErrorMessage(err) {
   const details = err?.cause?.message || err?.message || 'Unknown AI generation error';
   return details.replace(process.env.AI_API_KEY || '', '[redacted]');
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('AI provider timed out')), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
 module.exports = (io) => {
@@ -29,11 +39,15 @@ module.exports = (io) => {
       }
 
       const client = new InferenceClient(process.env.AI_API_KEY);
-      const image = await client.textToImage({
-        model: process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
-        inputs: promptText,
-        provider: process.env.AI_PROVIDER || 'auto',
-      });
+      const timeoutMs = Number(process.env.AI_TIMEOUT_MS) || DEFAULT_AI_TIMEOUT_MS;
+      const image = await withTimeout(
+        client.textToImage({
+          model: process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
+          inputs: promptText,
+          provider: process.env.AI_PROVIDER || 'auto',
+        }),
+        timeoutMs
+      );
 
       // Convert the binary image response into a Base64 string.
       const arrayBuffer = await image.arrayBuffer();

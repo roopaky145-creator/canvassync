@@ -9,6 +9,8 @@ import Toolbar from '../components/Toolbar';
 import AIPromptPanel from '../components/AIPromptPanel';
 
 const AI_IMAGE_SIZE_LIMIT_BYTES = 200 * 1024;
+const AI_IMAGE_DEFAULT_LEFT = 80;
+const AI_IMAGE_DEFAULT_TOP = 90;
 
 const getBase64ByteSize = (base64) => {
   const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
@@ -398,28 +400,22 @@ useEffect(() => {
 
         const maxImageSize = Math.min(320, canvas.getWidth() * 0.35, canvas.getHeight() * 0.35);
         const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
-        const scaledWidth = img.width * scale;
-        const scaledHeight = img.height * scale;
-        const gap = 24;
-        const margin = 50;
-        const aiImageCount = canvas.getObjects().filter(obj => obj.type === 'image').length;
-        const columns = Math.max(1, Math.floor((canvas.getWidth() - margin * 2) / (scaledWidth + gap)));
-        const column = aiImageCount % columns;
-        const row = Math.floor(aiImageCount / columns);
-        const left = margin + column * (scaledWidth + gap);
-        const top = margin + row * (scaledHeight + gap);
 
         img.set({
-          left,
-          top: Math.min(top, canvas.getHeight() - scaledHeight - margin),
+          left: AI_IMAGE_DEFAULT_LEFT,
+          top: AI_IMAGE_DEFAULT_TOP,
           id: uuidv4(),
           scaleX: scale,
           scaleY: scale
         });
-        isReceivingUpdate.current = true;
-        canvas.add(img);
-        canvas.renderAll();
-        isReceivingUpdate.current = false;
+
+        try {
+          isReceivingUpdate.current = true;
+          canvas.add(img);
+          canvas.renderAll();
+        } finally {
+          isReceivingUpdate.current = false;
+        }
       });
     });
 
