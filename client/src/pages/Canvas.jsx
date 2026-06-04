@@ -79,6 +79,37 @@ const Canvas = () => {
     const canvas = new fabric.Canvas('canvas-el');
     canvasRef.current = canvas;
 
+    // Helper function to apply locks safely at any point in the lifecycle
+    const applyActiveLocks = (locksMap) => {
+      if (!locksMap || !canvasRef.current) return;
+      let requiresRender = false;
+      Object.keys(locksMap).forEach(objectId => {
+        const lockedBySocketId = locksMap[objectId];
+        if (lockedBySocketId === socket.id) return; 
+
+        const obj = canvasRef.current.getObjects().find(o => o.id === objectId);
+        if (obj) {
+          obj.set({
+            _originalOpacity: obj.opacity || 1,
+            _originalStroke: obj.stroke,
+            _originalStrokeWidth: obj.strokeWidth || 0,
+            selectable: false,
+            evented: false,
+            opacity: 0.5,
+            _lockedBy: lockedBySocketId
+          });
+          requiresRender = true;
+        }
+      });
+      if (requiresRender) canvasRef.current.renderAll();
+    };
+
+    // 1. Register listener FIRST
+    socket.on('sync_active_locks_on_join', (locksMap) => {
+      applyActiveLocks(locksMap);
+    });
+
+    // 2. Emit join SECOND
     socket.emit('join_room', roomCode);
 
     // ── EMIT SIDE ────────────────────────────────────────────────
@@ -452,6 +483,24 @@ const Canvas = () => {
     });
 
     // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
+    const loadBoard = async () => {
+      try {
+        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.canvasState) {
+            canvas.loadFromJSON(data.canvasState, () => {
+              canvas.renderAll();
+              // Board is fully loaded. Safe to request and apply active locks now.
+              socket.emit('request_lock_sync', roomCode);
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load board state', err);
+      }
+    };
+    loadBoard();
 
     return () => {
       throttledMove.cancel();
@@ -499,7 +548,49 @@ const Canvas = () => {
   }, [activeTool, brushColor, brushWidth]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
-  const handleSave = async () => { /* Himanshu implements Phase 5 */ };
+  const handleSave = async () => {
+    const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
+    
+    // Scrub ephemeral lock state to keep the DB clean
+    if (canvasJSON && canvasJSON.objects) {
+      canvasJSON.objects.forEach(obj => {
+        // Universally restore interactivity to prevent transient UI state leaks (e.g. from pen tool)
+        obj.selectable = true;
+        obj.evented = true;
+
+        // Restore visual properties if the object was actively locked
+        if (obj._lockedBy) {
+          obj.opacity = obj._originalOpacity || 1;
+          if (obj._originalStroke !== undefined) obj.stroke = obj._originalStroke;
+          if (obj._originalStrokeWidth !== undefined) obj.strokeWidth = obj._originalStrokeWidth;
+        }
+
+        // Scrub ephemeral properties from the database payload
+        delete obj._lockedBy;
+        delete obj._originalOpacity;
+        delete obj._originalStroke;
+        delete obj._originalStrokeWidth;
+      });
+    }
+
+    const jsonString = JSON.stringify(canvasJSON);
+    if ((new Blob([jsonString]).size / (1024 * 1024)) > 15) {
+      alert('Cannot save: Board exceeds 15MB limit. Please remove some AI images.');
+      return;
+    }
+
+    try {
+      await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonString
+      });
+      alert('Board Saved!');
+    } catch (error) {
+      console.error('Save failed:', error);
+      alert('Failed to save board.');
+    }
+  };
 
   return (
     <div style={{ position: 'relative' }}>

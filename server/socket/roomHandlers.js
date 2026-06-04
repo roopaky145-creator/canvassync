@@ -1,10 +1,21 @@
 const activeLocks = new Map(); // module scope — ONE instance for the entire process
 
+// activeRoomLocks[roomCode] = { objectId: socketId, ... }
+const activeRoomLocks = {};
 function registerRoomHandlers(io, socket) {
   socket.on('join_room', (roomCode) => {
     if (socket.roomCode) socket.leave(socket.roomCode);
     socket.roomCode = roomCode;
     socket.join(roomCode);
+    if (activeRoomLocks[roomCode]) {
+      socket.emit('sync_active_locks_on_join', activeRoomLocks[roomCode]);
+    }
+  });
+
+  socket.on('request_lock_sync', (roomCode) => {
+    if (activeRoomLocks[roomCode]) {
+      socket.emit('sync_active_locks_on_join', activeRoomLocks[roomCode]);
+    }
   });
 
   socket.on('canvas_update', (data) => {
@@ -38,6 +49,8 @@ function registerRoomHandlers(io, socket) {
     const lockKey = `${data.roomCode}::${data.object_id}`;
     if (!activeLocks.has(lockKey)) {
       activeLocks.set(lockKey, socket.id);
+      if (!activeRoomLocks[data.roomCode]) activeRoomLocks[data.roomCode] = {};
+      activeRoomLocks[data.roomCode][data.object_id] = socket.id;
       io.to(data.roomCode).emit('lock_acquired', {
         object_id: data.object_id,
         lockedBy: socket.id
@@ -51,6 +64,9 @@ function registerRoomHandlers(io, socket) {
     const lockKey = `${data.roomCode}::${data.object_id}`;
     if (activeLocks.get(lockKey) === socket.id) {
       activeLocks.delete(lockKey);
+      if (activeRoomLocks[data.roomCode] && activeRoomLocks[data.roomCode][data.object_id]) {
+        delete activeRoomLocks[data.roomCode][data.object_id];
+      }
       io.to(data.roomCode).emit('lock_released', { object_id: data.object_id });
     }
   });
@@ -64,6 +80,13 @@ function registerRoomHandlers(io, socket) {
         activeLocks.delete(lockKey);
       }
     });
+    if (activeRoomLocks[roomCode]) {
+      for (const objectId in activeRoomLocks[roomCode]) {
+        if (activeRoomLocks[roomCode][objectId] === socket.id) {
+          delete activeRoomLocks[roomCode][objectId];
+        }
+      }
+    }
     io.to(roomCode).emit('user_disconnected_locks_cleared', socket.id);
   });
 }
