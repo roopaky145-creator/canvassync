@@ -452,6 +452,22 @@ const Canvas = () => {
     });
 
     // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
+    const loadBoard = async () => {
+      try {
+        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.canvasState) {
+            canvas.loadFromJSON(data.canvasState, () => {
+              canvas.renderAll();
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load board state', err);
+      }
+    };
+    loadBoard();
 
     return () => {
       throttledMove.cancel();
@@ -499,7 +515,26 @@ const Canvas = () => {
   }, [activeTool, brushColor, brushWidth]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
-  const handleSave = async () => { /* Himanshu implements Phase 5 */ };
+  const handleSave = async () => {
+    if (!canvasRef.current) return;
+    try {
+      const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
+      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ canvasState: canvasJSON })
+      });
+      if (response.ok) {
+        alert('Board Saved!');
+      } else {
+        console.error('Failed to save board');
+      }
+    } catch (err) {
+      console.error('Save error:', err);
+    }
+  };
 
   return (
     <div style={{ position: 'relative' }}>

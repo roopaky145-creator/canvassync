@@ -1,5 +1,6 @@
 require('dotenv').config();
 require('./models/Room');
+require('./models/Board');
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -7,10 +8,11 @@ const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const roomsRouter = require('./routes/rooms');
 const aiRoutes = require('./routes/ai');
+const boardRoutes = require('./routes/boardRoutes');
 const { registerRoomHandlers } = require('./socket/roomHandlers');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 app.use(cors({ 
   origin: process.env.FRONTEND_URL,
@@ -31,6 +33,7 @@ mongoose.connect(process.env.MONGO_URI)
 
 app.use('/api/rooms', roomsRouter);
 app.use('/api/ai', aiRoutes(io));
+app.use('/api/board', boardRoutes);
 
 io.on('connection', socket => registerRoomHandlers(io, socket));
 
