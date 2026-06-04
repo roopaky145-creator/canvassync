@@ -42,7 +42,6 @@ const Canvas = () => {
 
   const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
   const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
-  const pendingLocksRef = useRef(null);
   const lastAddedObjectRef = useRef(null);
   const redoObjectRef = useRef(null);
 
@@ -107,8 +106,7 @@ const Canvas = () => {
 
     // 1. Register listener FIRST
     socket.on('sync_active_locks_on_join', (locksMap) => {
-      pendingLocksRef.current = locksMap; // Store for later in case canvas is still loading
-      applyActiveLocks(locksMap);         // Try applying now in case canvas is ready
+      applyActiveLocks(locksMap);
     });
 
     // 2. Emit join SECOND
@@ -493,8 +491,8 @@ const Canvas = () => {
           if (data.canvasState) {
             canvas.loadFromJSON(data.canvasState, () => {
               canvas.renderAll();
-              // Hydrate any locks that arrived while the JSON was parsing
-              applyActiveLocks(pendingLocksRef.current);
+              // Board is fully loaded. Safe to request and apply active locks now.
+              socket.emit('request_lock_sync', roomCode);
             });
           }
         }
@@ -556,13 +554,18 @@ const Canvas = () => {
     // Scrub ephemeral lock state to keep the DB clean
     if (canvasJSON && canvasJSON.objects) {
       canvasJSON.objects.forEach(obj => {
+        // Universally restore interactivity to prevent transient UI state leaks (e.g. from pen tool)
+        obj.selectable = true;
+        obj.evented = true;
+
+        // Restore visual properties if the object was actively locked
         if (obj._lockedBy) {
           obj.opacity = obj._originalOpacity || 1;
           if (obj._originalStroke !== undefined) obj.stroke = obj._originalStroke;
           if (obj._originalStrokeWidth !== undefined) obj.strokeWidth = obj._originalStrokeWidth;
-          obj.selectable = true;
-          obj.evented = true;
         }
+
+        // Scrub ephemeral properties from the database payload
         delete obj._lockedBy;
         delete obj._originalOpacity;
         delete obj._originalStroke;
