@@ -81,6 +81,29 @@ const Canvas = () => {
 
     socket.emit('join_room', roomCode);
 
+    socket.on('sync_active_locks_on_join', (locksMap) => {
+      let requiresRender = false;
+      Object.keys(locksMap).forEach(objectId => {
+        const lockedBySocketId = locksMap[objectId];
+        if (lockedBySocketId === socket.id) return; // Don't lock ourselves out
+        
+        const obj = canvas.getObjects().find(o => o.id === objectId);
+        if (obj) {
+          obj.set({
+            _originalOpacity: obj.opacity || 1,
+            _originalStroke: obj.stroke,
+            _originalStrokeWidth: obj.strokeWidth || 0,
+            selectable: false,
+            evented: false,
+            opacity: 0.5,
+            _lockedBy: lockedBySocketId
+          });
+          requiresRender = true;
+        }
+      });
+      if (requiresRender) canvas.renderAll();
+    });
+
     // ── EMIT SIDE ────────────────────────────────────────────────
     canvas.on('object:added', (e) => {
       if (!e.target.id) e.target.set('id', uuidv4());
@@ -516,23 +539,41 @@ const Canvas = () => {
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => {
-    if (!canvasRef.current) return;
-    try {
-      const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ canvasState: canvasJSON })
+    const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
+    
+    // Scrub ephemeral lock state to keep the DB clean
+    if (canvasJSON && canvasJSON.objects) {
+      canvasJSON.objects.forEach(obj => {
+        if (obj._lockedBy) {
+          obj.opacity = obj._originalOpacity || 1;
+          if (obj._originalStroke !== undefined) obj.stroke = obj._originalStroke;
+          if (obj._originalStrokeWidth !== undefined) obj.strokeWidth = obj._originalStrokeWidth;
+          obj.selectable = true;
+          obj.evented = true;
+        }
+        delete obj._lockedBy;
+        delete obj._originalOpacity;
+        delete obj._originalStroke;
+        delete obj._originalStrokeWidth;
       });
-      if (response.ok) {
-        alert('Board Saved!');
-      } else {
-        console.error('Failed to save board');
-      }
-    } catch (err) {
-      console.error('Save error:', err);
+    }
+
+    const jsonString = JSON.stringify(canvasJSON);
+    if ((new Blob([jsonString]).size / (1024 * 1024)) > 15) {
+      alert('Cannot save: Board exceeds 15MB limit. Please remove some AI images.');
+      return;
+    }
+
+    try {
+      await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonString
+      });
+      alert('Board Saved!');
+    } catch (error) {
+      console.error('Save failed:', error);
+      alert('Failed to save board.');
     }
   };
 
