@@ -12,6 +12,12 @@ function registerRoomHandlers(io, socket) {
     }
   });
 
+  socket.on('request_lock_sync', (roomCode) => {
+    if (activeRoomLocks[roomCode]) {
+      socket.emit('sync_active_locks_on_join', activeRoomLocks[roomCode]);
+    }
+  });
+
   socket.on('canvas_update', (data) => {
     if (!data?.roomCode || !socket.rooms.has(data.roomCode) || !data?.objectData?.id) return;
     
