@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { InferenceClient } = require('@huggingface/inference');
 const router = express.Router();
 
@@ -53,8 +54,11 @@ module.exports = (io) => {
       const arrayBuffer = await image.arrayBuffer();
       const base64 = Buffer.from(arrayBuffer).toString('base64');
 
-      // Broadcast to all clients in this room
-      io.to(targetRoom).emit('ai_image_generated', { base64 });
+      // Generate a single shared ID so every client uses the same object ID
+      const imageId = crypto.randomUUID();
+
+      // Broadcast to all clients in this room (shared imageId prevents sync divergence)
+      io.to(targetRoom).emit('ai_image_generated', { base64, imageId });
       res.json({ success: true });
       
     } catch (err) {

@@ -3,14 +3,15 @@ import './AIPromptPanel.css';
 
 const getDisplayError = (message) => {
   const text = message?.trim();
-  if (!text) return 'AI generation failed. Please try again in some time.';
+  if (!text) return 'AI generation failed. Please try again in a few moments.';
 
   if (/invalid|unauthorized|password|AI_API_KEY/i.test(text)) {
     return text;
   }
 
-  if (/fetch|network|timeout|rate|limit|tempor|unavailable|provider|503|429|failed/i.test(text)) {
-    return 'AI generation failed. Please try again in some time.';
+  // Catch all transient / network / rate-limit / HF-specific errors
+  if (/fetch|network|timeout|rate|limit|tempor|unavailable|provider|503|429|402|500|failed|loading|busy|overloaded|quota|ENOTFOUND|timed out/i.test(text)) {
+    return 'AI generation failed. Please try again in a few moments.';
   }
 
   return text;
