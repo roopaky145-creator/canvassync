@@ -42,6 +42,7 @@ const Canvas = () => {
 
   const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
   const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
+  const pendingLocksRef = useRef(null);
   const lastAddedObjectRef = useRef(null);
   const redoObjectRef = useRef(null);
 
@@ -79,15 +80,15 @@ const Canvas = () => {
     const canvas = new fabric.Canvas('canvas-el');
     canvasRef.current = canvas;
 
-    socket.emit('join_room', roomCode);
-
-    socket.on('sync_active_locks_on_join', (locksMap) => {
+    // Helper function to apply locks safely at any point in the lifecycle
+    const applyActiveLocks = (locksMap) => {
+      if (!locksMap || !canvasRef.current) return;
       let requiresRender = false;
       Object.keys(locksMap).forEach(objectId => {
         const lockedBySocketId = locksMap[objectId];
-        if (lockedBySocketId === socket.id) return; // Don't lock ourselves out
-        
-        const obj = canvas.getObjects().find(o => o.id === objectId);
+        if (lockedBySocketId === socket.id) return; 
+
+        const obj = canvasRef.current.getObjects().find(o => o.id === objectId);
         if (obj) {
           obj.set({
             _originalOpacity: obj.opacity || 1,
@@ -101,8 +102,17 @@ const Canvas = () => {
           requiresRender = true;
         }
       });
-      if (requiresRender) canvas.renderAll();
+      if (requiresRender) canvasRef.current.renderAll();
+    };
+
+    // 1. Register listener FIRST
+    socket.on('sync_active_locks_on_join', (locksMap) => {
+      pendingLocksRef.current = locksMap; // Store for later in case canvas is still loading
+      applyActiveLocks(locksMap);         // Try applying now in case canvas is ready
     });
+
+    // 2. Emit join SECOND
+    socket.emit('join_room', roomCode);
 
     // ── EMIT SIDE ────────────────────────────────────────────────
     canvas.on('object:added', (e) => {
@@ -483,6 +493,8 @@ const Canvas = () => {
           if (data.canvasState) {
             canvas.loadFromJSON(data.canvasState, () => {
               canvas.renderAll();
+              // Hydrate any locks that arrived while the JSON was parsing
+              applyActiveLocks(pendingLocksRef.current);
             });
           }
         }
