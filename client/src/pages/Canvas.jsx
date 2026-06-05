@@ -182,8 +182,7 @@ const Canvas = () => {
         lastAddedObjectRef.current = textObj;
         redoObjectRef.current = null;
         
-        window.CANVAS_ACTIVE_TOOL = 'select';
-        setActiveTool('select');
+        // Removed setActiveTool('select') so the user stays in edit mode to type
         return;
       }
 
@@ -573,12 +572,17 @@ const Canvas = () => {
       });
     }
 
-    const jsonString = JSON.stringify(canvasJSON);
-    if ((new Blob([jsonString]).size / (1024 * 1024)) > 15) {
-      alert('Cannot save: Board exceeds 15MB limit. Please remove some AI images.');
+    // 3. Client-Side Size Guard and Payload Wrapping
+    const payload = { canvasState: canvasJSON };
+    const jsonString = JSON.stringify(payload);
+    const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+
+    if (sizeInMB > 15) {
+      alert(`Cannot save: Board is ${sizeInMB.toFixed(1)}MB. The maximum size is 15MB. Please remove some AI images.`);
       return;
     }
 
+    // 4. Send to server
     try {
       await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/save`, {
         method: 'POST',
