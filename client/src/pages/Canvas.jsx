@@ -579,13 +579,15 @@ const Canvas = () => {
   }, [roomCode]);
 
   useEffect(() => {
-    // Single source of truth for the global tool flag — eliminates stale leaks across remounts
+    // Single source of truth for the global tool flag
     window.CANVAS_ACTIVE_TOOL = activeTool;
 
     if (!canvasRef.current) return;
     
+    // Clean, single declarations
     const isShapeTool = ['rect', 'circle', 'line', 'text'].includes(activeTool);
-    
+    const shouldDisableSelection = isShapeTool || activeTool === 'pen' || activeTool === 'eraser';
+
     if (activeTool === 'pen' || activeTool === 'eraser') {
       canvasRef.current.isDrawingMode = true;
       canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
@@ -593,24 +595,20 @@ const Canvas = () => {
     } else {
       canvasRef.current.isDrawingMode = false;
     }
-
-    const isShapeTool = ['rect', 'circle', 'line', 'text'].includes(activeTool);
     
-    // Pen needs skipTargetFind so it draws OVER objects. Eraser needs to FIND objects to delete them.
-    const shouldDisableSelection = isShapeTool || activeTool === 'pen' || activeTool === 'eraser';
-
     canvasRef.current.selection = !shouldDisableSelection;
-    // ONLY skip targeting for the Pen tool. Eraser and shapes still need to know where the mouse is.
+    // ONLY skip targeting for the Pen tool so Eraser can still find objects to click
     canvasRef.current.skipTargetFind = activeTool === 'pen';
-
+    
     canvasRef.current.forEachObject((obj) => {
       if (obj._lockedBy) return;
-
+      
       obj.set({
         selectable: !shouldDisableSelection,
-        evented: activeTool === 'eraser' ? true : !shouldDisableSelection // Force evented to true for eraser so it registers clicks
+        evented: activeTool === 'eraser' ? true : !shouldDisableSelection
       });
     });
+    
     canvasRef.current.discardActiveObject();
     canvasRef.current.renderAll();
 
