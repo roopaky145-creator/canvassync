@@ -568,17 +568,14 @@ const Canvas = () => {
     socket.on('sync_transient_ledger', (ledgerEvents) => {
       if (!canvasRef.current) return;
 
-      if (ledgerEvents && ledgerEvents.length > 0) {
-        const maxId = Math.max(...ledgerEvents.map(e => e.eventId || 0));
-        serverWatermarkRef.current = Math.max(serverWatermarkRef.current, maxId);
-      }
-
       // Merge: Older ledger events FIRST, then newer live network events
-      pendingUpdatesRef.current = [...ledgerEvents, ...pendingUpdatesRef.current];
+      if (ledgerEvents && ledgerEvents.length > 0) {
+        pendingUpdatesRef.current = [...ledgerEvents, ...pendingUpdatesRef.current];
+      }
 
       flushEventBuffer(canvasRef.current);
 
-      // Resolve loading state ONLY after the entire timeline is merged and flushed
+      // Resolve loading state
       isBoardLoadingRef.current = false;
       setIsBoardLoading(false);
     });
