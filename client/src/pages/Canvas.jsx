@@ -80,6 +80,13 @@ const Canvas = () => {
 
   useEffect(() => {
     let isMounted = true;
+
+    // Reset hydration state when switching rooms without unmounting
+    isBoardLoadingRef.current = true;
+    pendingUpdatesRef.current = [];
+    pendingLocksRef.current = null;
+    setIsBoardLoading(true);
+
     const socket = io(process.env.REACT_APP_BACKEND_URL);
     socketRef.current = socket;
     const canvas = new fabric.Canvas('canvas-el');
@@ -536,15 +543,18 @@ const Canvas = () => {
               socket.emit('request_lock_sync', roomCode);
             });
           } else {
-            setIsBoardLoading(false);
+            // Board doesn't exist yet, but we must flush any events that arrived during the 404 check
+            flushEventBuffer(canvas);
             isBoardLoadingRef.current = false;
+            setIsBoardLoading(false);
           }
         })
         .catch(err => {
           console.error("Failed to load board:", err);
           if (isMounted) {
-            setIsBoardLoading(false);
+            flushEventBuffer(canvas); // Safely hydrate any incoming events despite the load error
             isBoardLoadingRef.current = false;
+            setIsBoardLoading(false);
           }
         });
     };

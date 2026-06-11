@@ -12,23 +12,33 @@ router.post('/:roomCode/save', async (req, res) => {
       return res.status(400).json({ error: 'No canvas state provided' });
     }
 
-    // Find the existing board to check its timestamp
-    const existingBoard = await Board.findOne({ roomCode });
-    
-    // If the database has a newer timestamp than the incoming request, reject the stale save
-    if (existingBoard && existingBoard.lastUpdated && timestamp && existingBoard.lastUpdated > timestamp) {
-      return res.status(409).json({ error: 'Stale save detected. Database has a newer version.' });
+    if (typeof timestamp !== 'number' || !isFinite(timestamp)) {
+      return res.status(400).json({ error: 'Valid finite timestamp required' });
     }
 
-    // Upsert the new board state with the new timestamp
-    await Board.findOneAndUpdate(
-      { roomCode },
+    // Atomic update: Only update if the document doesn't exist, OR if lastUpdated is older/missing
+    const updateResult = await Board.updateOne(
       { 
-        canvasState: canvasState,
-        lastUpdated: timestamp || Date.now() 
+        roomCode, 
+        $or: [ 
+          { lastUpdated: { $lt: timestamp } }, 
+          { lastUpdated: { $exists: false } },
+          { lastUpdated: null }
+        ] 
       },
-      { upsert: true, new: true }
+      { $set: { canvasState, lastUpdated: timestamp } }
     );
+
+    // If no document was modified, it either doesn't exist, OR it was rejected due to an older timestamp
+    if (updateResult.matchedCount === 0) {
+      const existingBoard = await Board.findOne({ roomCode });
+      if (existingBoard) {
+        return res.status(409).json({ error: 'Stale save detected. Database has a newer version.' });
+      } else {
+        // First time saving this room
+        await Board.create({ roomCode, canvasState, lastUpdated: timestamp });
+      }
+    }
 
     res.status(200).json({ message: 'Board saved successfully' });
   } catch (error) {
