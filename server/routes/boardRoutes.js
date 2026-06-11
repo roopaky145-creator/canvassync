@@ -29,14 +29,17 @@ router.post('/:roomCode/save', async (req, res) => {
       { $set: { canvasState, lastUpdated: timestamp } }
     );
 
-    // If no document was modified, it either doesn't exist, OR it was rejected due to an older timestamp
+    // If matchedCount is 0, the room either doesn't exist, OR we were blocked by an older timestamp.
     if (updateResult.matchedCount === 0) {
-      const existingBoard = await Board.findOne({ roomCode });
-      if (existingBoard) {
-        return res.status(409).json({ error: 'Stale save detected. Database has a newer version.' });
-      } else {
-        // First time saving this room
+      try {
+        // Attempt to create. If the room DOES exist (blocked by timestamp), MongoDB will throw a duplicate key error.
         await Board.create({ roomCode, canvasState, lastUpdated: timestamp });
+      } catch (insertError) {
+        if (insertError.code === 11000) {
+          // Room exists, which means updateOne intentionally ignored us. This is a stale save.
+          return res.status(409).json({ error: 'Stale save detected. Database has a newer version.' });
+        }
+        throw insertError; // Re-throw if it's a real database failure
       }
     }
 

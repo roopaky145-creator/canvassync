@@ -81,10 +81,12 @@ const Canvas = () => {
   useEffect(() => {
     let isMounted = true;
 
-    // Reset hydration state when switching rooms without unmounting
+    // Reset hydration and undo/redo state when switching rooms without unmounting
     isBoardLoadingRef.current = true;
     pendingUpdatesRef.current = [];
     pendingLocksRef.current = null;
+    if (lastAddedObjectRef) lastAddedObjectRef.current = null;
+    if (redoObjectRef) redoObjectRef.current = null;
     setIsBoardLoading(true);
 
     const socket = io(process.env.REACT_APP_BACKEND_URL);
