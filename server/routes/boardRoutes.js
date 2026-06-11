@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const Board = mongoose.model('Board');
+const { roomTransientLedger } = require('../socket/roomHandlers');
 
 router.post('/:roomCode/save', async (req, res) => {
   try {
@@ -58,6 +59,10 @@ router.post('/:roomCode/save', async (req, res) => {
           throw insertError; 
         }
       }
+    }
+
+    if (roomTransientLedger[roomCode]) {
+      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.timestamp > timestamp);
     }
 
     res.status(200).json({ message: 'Board saved successfully' });

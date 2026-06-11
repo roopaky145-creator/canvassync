@@ -38,7 +38,7 @@ function registerRoomHandlers(io, socket) {
     }
     
     if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
-    roomTransientLedger[data.roomCode].push({ event: 'canvas_update', data });
+    roomTransientLedger[data.roomCode].push({ event: 'canvas_update', data, timestamp: Date.now() });
 
     socket.to(data.roomCode).emit('canvas_update', data);
   });
@@ -55,7 +55,7 @@ function registerRoomHandlers(io, socket) {
     activeLocks.delete(lockKey);
 
     if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
-    roomTransientLedger[data.roomCode].push({ event: 'canvas_delete', data });
+    roomTransientLedger[data.roomCode].push({ event: 'canvas_delete', data, timestamp: Date.now() });
 
     socket.to(data.roomCode).emit('canvas_delete', { objectId: data.objectId });
   });
@@ -108,4 +108,4 @@ function registerRoomHandlers(io, socket) {
   });
 }
 
-module.exports = { registerRoomHandlers, activeLocks };
+module.exports = { registerRoomHandlers, activeLocks, roomTransientLedger };

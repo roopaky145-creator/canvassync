@@ -530,9 +530,15 @@ const Canvas = () => {
 
     socket.on('sync_transient_ledger', (ledgerEvents) => {
       if (!canvasRef.current) return;
-      // Push the historical events into our buffer and immediately flush them onto the canvas
-      pendingUpdatesRef.current.push(...ledgerEvents);
+
+      // Merge: Older ledger events FIRST, then newer live network events
+      pendingUpdatesRef.current = [...ledgerEvents, ...pendingUpdatesRef.current];
+
       flushEventBuffer(canvasRef.current);
+
+      // Resolve loading state ONLY after the entire timeline is merged and flushed
+      isBoardLoadingRef.current = false;
+      setIsBoardLoading(false);
     });
 
     const loadBoard = async () => {
@@ -550,12 +556,6 @@ const Canvas = () => {
               canvas.renderAll();
               applyActiveLocks(pendingLocksRef?.current || {});
 
-              // Hydrate any events that happened while downloading the massive AI images
-              flushEventBuffer(canvas); 
-
-              setIsBoardLoading(false);
-              isBoardLoadingRef.current = false;
-              socket.emit('request_lock_sync', roomCode);
               socket.emit('request_transient_ledger', roomCode);
             });
           } else {
@@ -671,7 +671,6 @@ const Canvas = () => {
         headers: { 'Content-Type': 'application/json' },
         body: jsonString
       });
-      socketRef.current.emit('clear_transient_ledger', roomCode);
       alert('Board Saved!');
     } catch (error) {
       console.error('Save failed:', error);
