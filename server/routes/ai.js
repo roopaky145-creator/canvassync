@@ -58,21 +58,21 @@ module.exports = (io) => {
       // Generate a single shared ID so every client uses the same object ID
       const imageId = crypto.randomUUID();
 
-      // Broadcast to all clients in this room (shared imageId prevents sync divergence)
-      io.to(targetRoom).emit('ai_image_generated', { base64, imageId });
-
       if (!roomEventCounters[targetRoom]) roomEventCounters[targetRoom] = 0;
       const eventId = ++roomEventCounters[targetRoom];
+      
+      const generatedData = { base64, imageId, eventId };
 
       if (!roomTransientLedger[targetRoom]) roomTransientLedger[targetRoom] = [];
       roomTransientLedger[targetRoom].push({ 
         event: 'ai_image_generated', 
-        data: { base64, imageId }, 
+        data: generatedData, 
         timestamp: Date.now(),
         eventId
       });
 
-      req.app.get('io').to(targetRoom).emit('watermark_sync', eventId);
+      // Broadcast to all clients in this room (shared imageId prevents sync divergence)
+      io.to(targetRoom).emit('ai_image_generated', generatedData);
 
       res.json({ success: true });
       

@@ -36,13 +36,12 @@ function registerRoomHandlers(io, socket) {
     
     if (!roomEventCounters[data.roomCode]) roomEventCounters[data.roomCode] = 0;
     const eventId = ++roomEventCounters[data.roomCode];
+    data.eventId = eventId; // Embed directly in the payload
 
     if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
     roomTransientLedger[data.roomCode].push({ event: 'canvas_update', data, timestamp: Date.now(), eventId });
 
-    socket.emit('watermark_sync', eventId);
     socket.to(data.roomCode).emit('canvas_update', data);
-    socket.to(data.roomCode).emit('watermark_sync', eventId);
   });
 
   socket.on('canvas_delete', (data) => {
@@ -58,13 +57,12 @@ function registerRoomHandlers(io, socket) {
 
     if (!roomEventCounters[data.roomCode]) roomEventCounters[data.roomCode] = 0;
     const eventId = ++roomEventCounters[data.roomCode];
+    data.eventId = eventId; // Embed directly in the payload
 
     if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
     roomTransientLedger[data.roomCode].push({ event: 'canvas_delete', data, timestamp: Date.now(), eventId });
 
-    socket.emit('watermark_sync', eventId);
-    socket.to(data.roomCode).emit('canvas_delete', { objectId: data.objectId });
-    socket.to(data.roomCode).emit('watermark_sync', eventId);
+    socket.to(data.roomCode).emit('canvas_delete', data);
   });
 
   // Acquire a lock — first come, first served (room-scoped)

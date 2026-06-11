@@ -84,6 +84,7 @@ const Canvas = () => {
 
     // Reset hydration and undo/redo state when switching rooms without unmounting
     isBoardLoadingRef.current = true;
+    if (serverWatermarkRef) serverWatermarkRef.current = 0;
     pendingUpdatesRef.current = [];
     pendingLocksRef.current = null;
     if (lastAddedObjectRef) lastAddedObjectRef.current = null;
@@ -364,6 +365,7 @@ const Canvas = () => {
           }
           existing.setCoords();
           canvasInstance.renderAll();
+          if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
@@ -372,6 +374,7 @@ const Canvas = () => {
           try {
             objects.forEach(obj => canvasInstance.add(obj));
             canvasInstance.renderAll();
+            if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
           } finally {
             isReceivingUpdate.current = false;
           }
@@ -391,6 +394,7 @@ const Canvas = () => {
       isReceivingUpdate.current = true;
       const obj = canvasInstance.getObjects().find(o => o.id === data.objectId);
       if (obj) { canvasInstance.remove(obj); canvasInstance.renderAll(); }
+      if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
       isReceivingUpdate.current = false;
     };
 
@@ -511,6 +515,7 @@ const Canvas = () => {
           isReceivingUpdate.current = true;
           canvas.add(img);
           canvas.renderAll();
+          if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
@@ -550,6 +555,7 @@ const Canvas = () => {
               isReceivingUpdate.current = true;
               canvasInstance.add(img);
               canvasInstance.renderAll();
+              if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
             } finally {
               isReceivingUpdate.current = false;
             }
@@ -558,10 +564,6 @@ const Canvas = () => {
       });
       pendingUpdatesRef.current = []; // Clear the queue
     };
-
-    socket.on('watermark_sync', (eventId) => {
-      serverWatermarkRef.current = Math.max(serverWatermarkRef.current, eventId);
-    });
 
     socket.on('sync_transient_ledger', (ledgerEvents) => {
       if (!canvasRef.current) return;
