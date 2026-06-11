@@ -133,6 +133,7 @@ const Canvas = () => {
 
     // ── EMIT SIDE ────────────────────────────────────────────────
     canvas.on('object:added', (e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       if (!e.target.id) e.target.set('id', uuidv4());
       if (!isReceivingUpdate.current && !isDrawingShape) {
         socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
@@ -140,6 +141,7 @@ const Canvas = () => {
     });
 
     const throttledMove = throttle((e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
     }, 50);
@@ -147,12 +149,14 @@ const Canvas = () => {
     canvas.on('object:moving', throttledMove);
 
     canvas.on('object:modified', (e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       throttledMove.flush();
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
     });
 
     canvas.on('object:removed', (e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       if (!e.target.id) return; // guard: never emit delete for objects without an ID
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_delete', { roomCode, objectId: e.target.id });
@@ -164,10 +168,12 @@ const Canvas = () => {
       redoObjectRef.current = null;
     });
 
-    canvas.on('mouse:down', (e) => {
-      if (window.CANVAS_ACTIVE_TOOL === 'eraser' && e.target) {
-        if (!e.target.id) return; // Guard against unsynced objects
-        canvas.remove(e.target);
+    canvas.on('mouse:down', (opt) => {
+      const tool = window.CANVAS_ACTIVE_TOOL || 'select';
+      if (tool === 'eraser' && opt.target) {
+        canvas.remove(opt.target);
+        // The object:removed listener will handle the socket broadcast
+        return;
       }
     });
 
@@ -588,19 +594,21 @@ const Canvas = () => {
       canvasRef.current.isDrawingMode = false;
     }
 
-    // When a shape drawing tool is active, disable selection on all existing
-    // objects so clicking on them doesn't select+drag them instead of drawing.
-    // skipTargetFind = true tells Fabric.js to not even look for objects
-    // under the cursor, completely preventing accidental selection/drag.
+    const isShapeTool = ['rect', 'circle', 'line', 'text'].includes(activeTool);
+    
+    // Pen needs skipTargetFind so it draws OVER objects. Eraser needs to FIND objects to delete them.
     const shouldDisableSelection = isShapeTool || activeTool === 'pen' || activeTool === 'eraser';
+
     canvasRef.current.selection = !shouldDisableSelection;
-    canvasRef.current.skipTargetFind = shouldDisableSelection;
+    // ONLY skip targeting for the Pen tool. Eraser and shapes still need to know where the mouse is.
+    canvasRef.current.skipTargetFind = activeTool === 'pen';
+
     canvasRef.current.forEachObject((obj) => {
-      // Don't touch objects that are locked by another user
       if (obj._lockedBy) return;
+
       obj.set({
         selectable: !shouldDisableSelection,
-        evented: !shouldDisableSelection
+        evented: activeTool === 'eraser' ? true : !shouldDisableSelection // Force evented to true for eraser so it registers clicks
       });
     });
     canvasRef.current.discardActiveObject();
