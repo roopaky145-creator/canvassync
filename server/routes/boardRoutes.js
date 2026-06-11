@@ -6,6 +6,9 @@ const { roomTransientLedger } = require('../socket/roomHandlers');
 
 router.post('/:roomCode/save', async (req, res) => {
   try {
+    // CRITICAL: Capture time instantly upon request arrival, BEFORE any async DB operations pause the thread
+    const serverPruneTime = Date.now();
+    
     const { roomCode } = req.params;
     const { canvasState, timestamp } = req.body;
 
@@ -62,8 +65,7 @@ router.post('/:roomCode/save', async (req, res) => {
     }
 
     if (roomTransientLedger[roomCode]) {
-      const serverPruneTime = Date.now();
-      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.timestamp > serverPruneTime);
+      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.timestamp >= serverPruneTime);
     }
 
     res.status(200).json({ message: 'Board saved successfully' });
