@@ -523,6 +523,36 @@ const Canvas = () => {
           handleCanvasUpdate(data, canvasInstance);
         } else if (event === 'canvas_delete') {
           handleCanvasDelete(data, canvasInstance);
+        } else if (event === 'ai_image_generated') {
+          if (!data?.base64 || !data?.imageId) return;
+          const alreadyExists = canvasInstance.getObjects().find(o => o.id === data.imageId);
+          if (alreadyExists) return;
+
+          fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img, isError) => {
+            if (isError || !img || !img.width || !img.height) return;
+            if (canvasInstance.getObjects().find(o => o.id === data.imageId)) return;
+
+            const maxImageSize = Math.min(320, canvasInstance.getWidth() * 0.35, canvasInstance.getHeight() * 0.35);
+            const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
+            const centerLeft = Math.round((canvasInstance.getWidth() / 2) - (img.width * scale / 2));
+            const centerTop = Math.round((canvasInstance.getHeight() / 2) - (img.height * scale / 2));
+
+            img.set({
+              left: centerLeft,
+              top: centerTop,
+              id: data.imageId,
+              scaleX: scale,
+              scaleY: scale
+            });
+
+            try {
+              isReceivingUpdate.current = true;
+              canvasInstance.add(img);
+              canvasInstance.renderAll();
+            } finally {
+              isReceivingUpdate.current = false;
+            }
+          });
         }
       });
       pendingUpdatesRef.current = []; // Clear the queue
@@ -559,18 +589,15 @@ const Canvas = () => {
               socket.emit('request_transient_ledger', roomCode);
             });
           } else {
-            // Board doesn't exist yet, but we must flush any events that arrived during the 404 check
-            flushEventBuffer(canvas);
-            isBoardLoadingRef.current = false;
-            setIsBoardLoading(false);
+            // Board doesn't exist in DB yet, but we MUST fetch the transient ledger for late joiners!
+            socket.emit('request_transient_ledger', roomCode);
           }
         })
         .catch(err => {
           console.error("Failed to load board:", err);
           if (isMounted) {
-            flushEventBuffer(canvas); // Safely hydrate any incoming events despite the load error
-            isBoardLoadingRef.current = false;
-            setIsBoardLoading(false);
+            // Even on network error, try to fetch the live ledger
+            socket.emit('request_transient_ledger', roomCode);
           }
         });
     };

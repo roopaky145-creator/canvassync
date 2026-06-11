@@ -14,10 +14,6 @@ function registerRoomHandlers(io, socket) {
     }
   });
 
-  socket.on('clear_transient_ledger', (roomCode) => {
-    roomTransientLedger[roomCode] = [];
-  });
-
   socket.on('request_transient_ledger', (roomCode) => {
     socket.emit('sync_transient_ledger', roomTransientLedger[roomCode] || []);
   });

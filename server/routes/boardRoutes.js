@@ -62,7 +62,8 @@ router.post('/:roomCode/save', async (req, res) => {
     }
 
     if (roomTransientLedger[roomCode]) {
-      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.timestamp > timestamp);
+      const serverPruneTime = Date.now();
+      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.timestamp > serverPruneTime);
     }
 
     res.status(200).json({ message: 'Board saved successfully' });
