@@ -35,6 +35,7 @@ const Canvas = () => {
   const [isBoardLoading, setIsBoardLoading] = useState(true);
   const isBoardLoadingRef = useRef(true);
   const serverWatermarkRef = useRef(0);
+  const completedEventIdsRef = useRef(new Set());
   const pendingUpdatesRef = useRef([]); // The Event Buffer
   const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
@@ -85,6 +86,7 @@ const Canvas = () => {
     // Reset hydration and undo/redo state when switching rooms without unmounting
     isBoardLoadingRef.current = true;
     if (serverWatermarkRef) serverWatermarkRef.current = 0;
+    if (completedEventIdsRef) completedEventIdsRef.current.clear();
     pendingUpdatesRef.current = [];
     pendingLocksRef.current = null;
     if (lastAddedObjectRef) lastAddedObjectRef.current = null;
@@ -365,7 +367,7 @@ const Canvas = () => {
           }
           existing.setCoords();
           canvasInstance.renderAll();
-          if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
+          advanceWatermarkContiguously(data?.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
@@ -374,7 +376,7 @@ const Canvas = () => {
           try {
             objects.forEach(obj => canvasInstance.add(obj));
             canvasInstance.renderAll();
-            if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
+            advanceWatermarkContiguously(data?.eventId);
           } finally {
             isReceivingUpdate.current = false;
           }
@@ -394,7 +396,7 @@ const Canvas = () => {
       isReceivingUpdate.current = true;
       const obj = canvasInstance.getObjects().find(o => o.id === data.objectId);
       if (obj) { canvasInstance.remove(obj); canvasInstance.renderAll(); }
-      if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
+      advanceWatermarkContiguously(data?.eventId);
       isReceivingUpdate.current = false;
     };
 
@@ -515,12 +517,27 @@ const Canvas = () => {
           isReceivingUpdate.current = true;
           canvas.add(img);
           canvas.renderAll();
-          if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
+          advanceWatermarkContiguously(data?.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
       });
     });
+
+    const advanceWatermarkContiguously = (completedId) => {
+      if (!completedId) return;
+
+      // Add the finished event to the waiting room
+      completedEventIdsRef.current.add(completedId);
+
+      // Only advance the watermark if the NEXT expected sequence ID is in the waiting room
+      let nextExpected = serverWatermarkRef.current + 1;
+      while (completedEventIdsRef.current.has(nextExpected)) {
+        completedEventIdsRef.current.delete(nextExpected); // Clean up memory
+        serverWatermarkRef.current = nextExpected;
+        nextExpected++;
+      }
+    };
 
     // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
     const flushEventBuffer = (canvasInstance) => {
@@ -555,7 +572,7 @@ const Canvas = () => {
               isReceivingUpdate.current = true;
               canvasInstance.add(img);
               canvasInstance.renderAll();
-              if (data?.eventId) serverWatermarkRef.current = Math.max(serverWatermarkRef.current, data.eventId);
+              advanceWatermarkContiguously(data?.eventId);
             } finally {
               isReceivingUpdate.current = false;
             }
@@ -570,6 +587,10 @@ const Canvas = () => {
 
       // Merge: Older ledger events FIRST, then newer live network events
       if (ledgerEvents && ledgerEvents.length > 0) {
+        // If we are a fresh client joining late, jump our baseline to just before the ledger starts
+        if (serverWatermarkRef.current === 0) {
+          serverWatermarkRef.current = ledgerEvents[0].eventId - 1;
+        }
         pendingUpdatesRef.current = [...ledgerEvents, ...pendingUpdatesRef.current];
       }
 
