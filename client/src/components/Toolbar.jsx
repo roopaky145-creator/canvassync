@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MousePointer, Square, Circle, PenTool, Eraser, Minus, Type, Undo, Redo, Palette, Download } from 'lucide-react';
 
-const Toolbar = ({ activeTool, setActiveTool, onSave, handleUndo, handleRedo, brushColor, setBrushColor, brushWidth, setBrushWidth }) => {
+const Toolbar = ({ activeTool, setActiveTool, onSave, handleUndo, handleRedo, brushColor, setBrushColor, brushWidth, setBrushWidth, isSaving }) => {
   const [showSettings, setShowSettings] = useState(false);
 
   const tools = [
@@ -94,8 +94,13 @@ const Toolbar = ({ activeTool, setActiveTool, onSave, handleUndo, handleRedo, br
         </button>
 
         <div className="w-px h-6 bg-gray-300 mx-2" />
-        <button onClick={onSave} className="p-2 rounded hover:bg-gray-200" title="Save Board">
-            <Download size={20} />
+        <button 
+          onClick={onSave} 
+          disabled={isSaving}
+          className={`p-2 rounded hover:bg-gray-200 ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title="Save Board"
+        >
+          {isSaving ? 'Saving...' : <Download size={20} />}
         </button>
       </div>
 

@@ -31,6 +31,7 @@ const Canvas = () => {
   const [activeTool, setActiveTool] = useState('select');
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(2);
+  const [isSaving, setIsSaving] = useState(false);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const currentColorRef = useRef(brushColor);
   const currentWidthRef = useRef(brushWidth);
@@ -548,6 +549,7 @@ const Canvas = () => {
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => {
+    setIsSaving(true);
     const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
     
     // Scrub ephemeral lock state to keep the DB clean
@@ -572,13 +574,17 @@ const Canvas = () => {
       });
     }
 
-    // 3. Client-Side Size Guard and Payload Wrapping
-    const payload = { canvasState: canvasJSON };
+    // Add Timestamp for Concurrency Guard
+    const payload = { 
+      canvasState: canvasJSON,
+      timestamp: Date.now()
+    };
     const jsonString = JSON.stringify(payload);
     const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
 
     if (sizeInMB > 15) {
       alert(`Cannot save: Board is ${sizeInMB.toFixed(1)}MB. The maximum size is 15MB. Please remove some AI images.`);
+      setIsSaving(false);
       return;
     }
 
@@ -593,12 +599,15 @@ const Canvas = () => {
     } catch (error) {
       console.error('Save failed:', error);
       alert('Failed to save board.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
     <div style={{ position: 'relative' }}>
       <Toolbar 
+        isSaving={isSaving}
         activeTool={activeTool} 
         setActiveTool={setActiveTool} 
         onSave={handleSave} 
