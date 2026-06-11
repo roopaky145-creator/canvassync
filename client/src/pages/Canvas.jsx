@@ -667,14 +667,15 @@ const Canvas = () => {
   };
 
   return (
-    <div style={{ position: 'relative', width: '1200px', height: '700px' }}>
-      {isBoardLoading && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-          <div className="spinner" style={{ width: '50px', height: '50px', border: '5px solid #ccc', borderTopColor: '#333', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-          <h2 style={{ marginTop: '20px', color: '#333' }}>Loading Workspace...</h2>
-          <p style={{ color: '#666' }}>Downloading AI assets and synchronizing state</p>
-        </div>
-      )}
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      backgroundColor: '#f3f4f6', // Soft grey "desk" background
+      minHeight: '100vh', 
+      paddingTop: '40px',
+      overflowX: 'hidden'
+    }}>
       <Toolbar 
         isSaving={isSaving}
         activeTool={activeTool} 
@@ -688,7 +689,24 @@ const Canvas = () => {
         setBrushWidth={setBrushWidth} 
       />
       <AIPromptPanel roomCode={roomCode} />
-      <canvas id="canvas-el" width={1200} height={700} />
+      <div style={{ 
+        position: 'relative', 
+        width: '1200px', 
+        height: '700px',
+        backgroundColor: '#ffffff', // Pure white paper
+        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)', // Drop shadow
+        marginTop: '20px', // Space below toolbar
+        borderRadius: '8px' // Optional: slightly rounded corners for modern feel
+      }}>
+        {isBoardLoading && (
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+            <div className="spinner" style={{ width: '50px', height: '50px', border: '5px solid #ccc', borderTopColor: '#333', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+            <h2 style={{ marginTop: '20px', color: '#333' }}>Loading Workspace...</h2>
+            <p style={{ color: '#666' }}>Downloading AI assets and synchronizing state</p>
+          </div>
+        )}
+        <canvas id="canvas-el" width={1200} height={700} />
+      </div>
     </div>
   );
 };
