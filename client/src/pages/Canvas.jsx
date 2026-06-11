@@ -33,6 +33,7 @@ const Canvas = () => {
   const [brushWidth, setBrushWidth] = useState(2);
   const [isSaving, setIsSaving] = useState(false);
   const [isBoardLoading, setIsBoardLoading] = useState(true);
+  const isBoardLoadingRef = useRef(true);
   const pendingUpdatesRef = useRef([]); // The Event Buffer
   const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
@@ -111,7 +112,11 @@ const Canvas = () => {
 
     // 1. Register listener FIRST
     socket.on('sync_active_locks_on_join', (locksMap) => {
-      applyActiveLocks(locksMap);
+      if (isBoardLoadingRef.current) {
+        pendingLocksRef.current = locksMap;
+      } else {
+        applyActiveLocks(locksMap);
+      }
     });
 
     // 2. Emit join SECOND
@@ -359,7 +364,7 @@ const Canvas = () => {
     };
 
     socket.on('canvas_update', (data) => {
-      if (isBoardLoading) {
+      if (isBoardLoadingRef.current) {
         pendingUpdatesRef.current.push({ event: 'canvas_update', data });
         return;
       }
@@ -374,7 +379,7 @@ const Canvas = () => {
     };
 
     socket.on('canvas_delete', (data) => {
-      if (isBoardLoading) {
+      if (isBoardLoadingRef.current) {
         pendingUpdatesRef.current.push({ event: 'canvas_delete', data });
         return;
       }
@@ -510,7 +515,10 @@ const Canvas = () => {
 
     const loadBoard = async () => {
       fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) return null;
+          return res.json();
+        })
         .then(data => {
           if (!isMounted) return; 
 
@@ -524,15 +532,20 @@ const Canvas = () => {
               flushEventBuffer(canvas); 
 
               setIsBoardLoading(false);
+              isBoardLoadingRef.current = false;
               socket.emit('request_lock_sync', roomCode);
             });
           } else {
             setIsBoardLoading(false);
+            isBoardLoadingRef.current = false;
           }
         })
         .catch(err => {
           console.error("Failed to load board:", err);
-          if (isMounted) setIsBoardLoading(false);
+          if (isMounted) {
+            setIsBoardLoading(false);
+            isBoardLoadingRef.current = false;
+          }
         });
     };
     loadBoard();
