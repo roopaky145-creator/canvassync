@@ -2,6 +2,8 @@ const activeLocks = new Map(); // module scope — ONE instance for the entire p
 
 // activeRoomLocks[roomCode] = { objectId: socketId, ... }
 const activeRoomLocks = {};
+
+const roomTransientLedger = {};
 function registerRoomHandlers(io, socket) {
   socket.on('join_room', (roomCode) => {
     if (socket.roomCode) socket.leave(socket.roomCode);
@@ -10,6 +12,14 @@ function registerRoomHandlers(io, socket) {
     if (activeRoomLocks[roomCode]) {
       socket.emit('sync_active_locks_on_join', activeRoomLocks[roomCode]);
     }
+  });
+
+  socket.on('clear_transient_ledger', (roomCode) => {
+    roomTransientLedger[roomCode] = [];
+  });
+
+  socket.on('request_transient_ledger', (roomCode) => {
+    socket.emit('sync_transient_ledger', roomTransientLedger[roomCode] || []);
   });
 
   socket.on('request_lock_sync', (roomCode) => {
@@ -27,6 +37,9 @@ function registerRoomHandlers(io, socket) {
       return;
     }
     
+    if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
+    roomTransientLedger[data.roomCode].push({ event: 'canvas_update', data });
+
     socket.to(data.roomCode).emit('canvas_update', data);
   });
 
@@ -40,6 +53,10 @@ function registerRoomHandlers(io, socket) {
     }
 
     activeLocks.delete(lockKey);
+
+    if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
+    roomTransientLedger[data.roomCode].push({ event: 'canvas_delete', data });
+
     socket.to(data.roomCode).emit('canvas_delete', { objectId: data.objectId });
   });
 

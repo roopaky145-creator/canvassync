@@ -528,6 +528,13 @@ const Canvas = () => {
       pendingUpdatesRef.current = []; // Clear the queue
     };
 
+    socket.on('sync_transient_ledger', (ledgerEvents) => {
+      if (!canvasRef.current) return;
+      // Push the historical events into our buffer and immediately flush them onto the canvas
+      pendingUpdatesRef.current.push(...ledgerEvents);
+      flushEventBuffer(canvasRef.current);
+    });
+
     const loadBoard = async () => {
       fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`)
         .then(res => {
@@ -549,6 +556,7 @@ const Canvas = () => {
               setIsBoardLoading(false);
               isBoardLoadingRef.current = false;
               socket.emit('request_lock_sync', roomCode);
+              socket.emit('request_transient_ledger', roomCode);
             });
           } else {
             // Board doesn't exist yet, but we must flush any events that arrived during the 404 check
@@ -663,6 +671,7 @@ const Canvas = () => {
         headers: { 'Content-Type': 'application/json' },
         body: jsonString
       });
+      socketRef.current.emit('clear_transient_ledger', roomCode);
       alert('Board Saved!');
     } catch (error) {
       console.error('Save failed:', error);
