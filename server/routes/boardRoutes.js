@@ -16,8 +16,7 @@ router.post('/:roomCode/save', async (req, res) => {
       return res.status(400).json({ error: 'Valid finite timestamp required' });
     }
 
-    // Atomic update: Only update if the document doesn't exist, OR if lastUpdated is older/missing
-    const updateResult = await Board.updateOne(
+    let updateResult = await Board.updateOne(
       { 
         roomCode, 
         $or: [ 
@@ -29,17 +28,35 @@ router.post('/:roomCode/save', async (req, res) => {
       { $set: { canvasState, lastUpdated: timestamp } }
     );
 
-    // If matchedCount is 0, the room either doesn't exist, OR we were blocked by an older timestamp.
+    // If matchedCount is 0, the room either doesn't exist, OR we were legitimately blocked by an older timestamp.
     if (updateResult.matchedCount === 0) {
       try {
-        // Attempt to create. If the room DOES exist (blocked by timestamp), MongoDB will throw a duplicate key error.
+        // Attempt to create.
         await Board.create({ roomCode, canvasState, lastUpdated: timestamp });
       } catch (insertError) {
         if (insertError.code === 11000) {
-          // Room exists, which means updateOne intentionally ignored us. This is a stale save.
-          return res.status(409).json({ error: 'Stale save detected. Database has a newer version.' });
+          // CONCURRENCY RACE CAUGHT: Another request just created this room a microsecond ago.
+          // The room now exists. We must retry the updateOne to let the database compare the timestamps.
+          updateResult = await Board.updateOne(
+            { 
+              roomCode, 
+              $or: [ 
+                { lastUpdated: { $lt: timestamp } }, 
+                { lastUpdated: { $exists: false } },
+                { lastUpdated: null }
+              ] 
+            },
+            { $set: { canvasState, lastUpdated: timestamp } }
+          );
+
+          // If it STILL matches 0 after the retry, our timestamp is mathematically older than the newly created one.
+          if (updateResult.matchedCount === 0) {
+            return res.status(409).json({ error: 'Stale save detected. Database has a newer version.' });
+          }
+        } else {
+          // Re-throw if it's a real database failure (e.g., connection lost)
+          throw insertError; 
         }
-        throw insertError; // Re-throw if it's a real database failure
       }
     }
 
