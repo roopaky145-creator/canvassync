@@ -32,6 +32,9 @@ const Canvas = () => {
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(2);
   const [isSaving, setIsSaving] = useState(false);
+  const [isBoardLoading, setIsBoardLoading] = useState(true);
+  const pendingUpdatesRef = useRef([]); // The Event Buffer
+  const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const currentColorRef = useRef(brushColor);
   const currentWidthRef = useRef(brushWidth);
@@ -75,6 +78,7 @@ const Canvas = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
     const socket = io(process.env.REACT_APP_BACKEND_URL);
     socketRef.current = socket;
     const canvas = new fabric.Canvas('canvas-el');
@@ -314,26 +318,21 @@ const Canvas = () => {
     window.addEventListener('keydown', handleKeyDown);
 
     // ── RECEIVE SIDE ─────────────────────────────────────────────
-    socket.on('canvas_update', (data) => {
-      // Only skip if WE are the lock owner (i.e., we're actively moving it).
-      // If someone else owns the lock and sends an update, we still apply it.
-      const activeObj = canvas.getActiveObject();
+    const handleCanvasUpdate = (data, canvasInstance = canvas) => {
+      const activeObj = canvasInstance.getActiveObject();
       if (activeObj?.id === data.objectData.id && !activeObj._lockedBy) return;
       isReceivingUpdate.current = true;
-      const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
+      const existing = canvasInstance.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
         try {
           if (data.objectData.type === 'line') {
-            // Fix Fabric.js Line sync by separating coordinates from bounding box
             const { x1, y1, x2, y2, left, top, ...rest } = data.objectData;
-            existing.set(rest);               // Apply styling first
-            existing.set({ x1, y1, x2, y2 }); // Apply points
-            existing.set({ left, top });      // Force bounding box position
+            existing.set(rest);
+            existing.set({ x1, y1, x2, y2 });
+            existing.set({ left, top });
           } else {
             existing.set(data.objectData);
           }
-          
-          // Re-enforce lock visual state if this object is currently locked by someone else
           if (existing._lockedBy && existing._lockedBy !== socket.id) {
             existing.set({
               selectable: false,
@@ -342,29 +341,44 @@ const Canvas = () => {
               strokeWidth: existing._originalStrokeWidth || existing.strokeWidth || 0
             });
           }
-          
           existing.setCoords();
-          canvas.renderAll();
+          canvasInstance.renderAll();
         } finally {
           isReceivingUpdate.current = false;
         }
       } else {
         fabric.util.enlivenObjects([data.objectData], (objects) => {
           try {
-            objects.forEach(obj => canvas.add(obj));
-            canvas.renderAll();
+            objects.forEach(obj => canvasInstance.add(obj));
+            canvasInstance.renderAll();
           } finally {
             isReceivingUpdate.current = false;
           }
         });
       }
+    };
+
+    socket.on('canvas_update', (data) => {
+      if (isBoardLoading) {
+        pendingUpdatesRef.current.push({ event: 'canvas_update', data });
+        return;
+      }
+      handleCanvasUpdate(data);
     });
 
-    socket.on('canvas_delete', (data) => {
+    const handleCanvasDelete = (data, canvasInstance = canvas) => {
       isReceivingUpdate.current = true;
-      const obj = canvas.getObjects().find(o => o.id === data.objectId);
-      if (obj) { canvas.remove(obj); canvas.renderAll(); }
+      const obj = canvasInstance.getObjects().find(o => o.id === data.objectId);
+      if (obj) { canvasInstance.remove(obj); canvasInstance.renderAll(); }
       isReceivingUpdate.current = false;
+    };
+
+    socket.on('canvas_delete', (data) => {
+      if (isBoardLoading) {
+        pendingUpdatesRef.current.push({ event: 'canvas_delete', data });
+        return;
+      }
+      handleCanvasDelete(data);
     });
 
     // ── PHASE 3: LOCKING LISTENERS ──────────────────────────────
@@ -483,30 +497,53 @@ const Canvas = () => {
     });
 
     // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
+    const flushEventBuffer = (canvasInstance) => {
+      pendingUpdatesRef.current.forEach(({ event, data }) => {
+        if (event === 'canvas_update') {
+          handleCanvasUpdate(data, canvasInstance);
+        } else if (event === 'canvas_delete') {
+          handleCanvasDelete(data, canvasInstance);
+        }
+      });
+      pendingUpdatesRef.current = []; // Clear the queue
+    };
+
     const loadBoard = async () => {
-      try {
-        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.canvasState) {
+      fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`)
+        .then(res => res.json())
+        .then(data => {
+          if (!isMounted) return; 
+
+          if (data && data.canvasState) {
             canvas.loadFromJSON(data.canvasState, () => {
+              if (!isMounted) return; 
               canvas.renderAll();
-              // Board is fully loaded. Safe to request and apply active locks now.
+              applyActiveLocks(pendingLocksRef?.current || {});
+
+              // Hydrate any events that happened while downloading the massive AI images
+              flushEventBuffer(canvas); 
+
+              setIsBoardLoading(false);
               socket.emit('request_lock_sync', roomCode);
             });
+          } else {
+            setIsBoardLoading(false);
           }
-        }
-      } catch (err) {
-        console.error('Failed to load board state', err);
-      }
+        })
+        .catch(err => {
+          console.error("Failed to load board:", err);
+          if (isMounted) setIsBoardLoading(false);
+        });
     };
     loadBoard();
 
     return () => {
+      isMounted = false;
       throttledMove.cancel();
       window.removeEventListener('keydown', handleKeyDown);
       socket.disconnect();
       canvas.dispose();
+      window.CANVAS_ACTIVE_TOOL = 'select';
     };
   }, [roomCode]);
 
@@ -605,7 +642,14 @@ const Canvas = () => {
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', width: '1200px', height: '700px' }}>
+      {isBoardLoading && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <div className="spinner" style={{ width: '50px', height: '50px', border: '5px solid #ccc', borderTopColor: '#333', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <h2 style={{ marginTop: '20px', color: '#333' }}>Loading Workspace...</h2>
+          <p style={{ color: '#666' }}>Downloading AI assets and synchronizing state</p>
+        </div>
+      )}
       <Toolbar 
         isSaving={isSaving}
         activeTool={activeTool} 
