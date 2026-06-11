@@ -6,11 +6,8 @@ const { roomTransientLedger } = require('../socket/roomHandlers');
 
 router.post('/:roomCode/save', async (req, res) => {
   try {
-    // CRITICAL: Capture time instantly upon request arrival, BEFORE any async DB operations pause the thread
-    const serverPruneTime = Date.now();
-    
     const { roomCode } = req.params;
-    const { canvasState, timestamp } = req.body;
+    const { canvasState, timestamp, watermark } = req.body;
 
     if (!canvasState) {
       return res.status(400).json({ error: 'No canvas state provided' });
@@ -64,8 +61,8 @@ router.post('/:roomCode/save', async (req, res) => {
       }
     }
 
-    if (roomTransientLedger[roomCode]) {
-      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.timestamp >= serverPruneTime);
+    if (roomTransientLedger[roomCode] && watermark !== undefined) {
+      roomTransientLedger[roomCode] = roomTransientLedger[roomCode].filter(evt => evt.eventId > watermark);
     }
 
     res.status(200).json({ message: 'Board saved successfully' });

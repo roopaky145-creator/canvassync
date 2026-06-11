@@ -34,6 +34,7 @@ const Canvas = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isBoardLoading, setIsBoardLoading] = useState(true);
   const isBoardLoadingRef = useRef(true);
+  const serverWatermarkRef = useRef(0);
   const pendingUpdatesRef = useRef([]); // The Event Buffer
   const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
@@ -558,8 +559,17 @@ const Canvas = () => {
       pendingUpdatesRef.current = []; // Clear the queue
     };
 
+    socket.on('watermark_sync', (eventId) => {
+      serverWatermarkRef.current = Math.max(serverWatermarkRef.current, eventId);
+    });
+
     socket.on('sync_transient_ledger', (ledgerEvents) => {
       if (!canvasRef.current) return;
+
+      if (ledgerEvents && ledgerEvents.length > 0) {
+        const maxId = Math.max(...ledgerEvents.map(e => e.eventId || 0));
+        serverWatermarkRef.current = Math.max(serverWatermarkRef.current, maxId);
+      }
 
       // Merge: Older ledger events FIRST, then newer live network events
       pendingUpdatesRef.current = [...ledgerEvents, ...pendingUpdatesRef.current];
@@ -680,7 +690,8 @@ const Canvas = () => {
     // Add Timestamp for Concurrency Guard
     const payload = { 
       canvasState: canvasJSON,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      watermark: serverWatermarkRef.current
     };
     const jsonString = JSON.stringify(payload);
     const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
