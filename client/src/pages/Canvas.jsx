@@ -111,7 +111,7 @@ const Canvas = () => {
         if (lockedBySocketId === socket.id) return; 
 
         const obj = canvasRef.current.getObjects().find(o => o.id === objectId);
-        if (obj) {
+        if (obj && obj.selectable !== false) {
           obj.set({
             _originalOpacity: obj.opacity || 1,
             _originalStroke: obj.stroke,
