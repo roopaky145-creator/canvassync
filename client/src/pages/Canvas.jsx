@@ -354,6 +354,11 @@ const Canvas = () => {
             existing.set(rest);
             existing.set({ x1, y1, x2, y2 });
             existing.set({ left, top });
+          } else if (existing.type === 'image' || data.objectData.type === 'image') {
+            // For images, update coordinates/scaling but NEVER blindly overwrite the src via .set()
+            const safeData = { ...data.objectData };
+            delete safeData.src; 
+            existing.set(safeData);
           } else {
             existing.set(data.objectData);
           }
@@ -372,10 +377,14 @@ const Canvas = () => {
           isReceivingUpdate.current = false;
         }
       } else {
-        fabric.util.enlivenObjects([data.objectData], (objects) => {
+        // When an object from the socket is NOT found on the local canvas:
+        fabric.util.enlivenObjects([data.objectData], (enlivenedObjects) => {
           try {
-            objects.forEach(obj => canvasInstance.add(obj));
-            canvasInstance.renderAll();
+            if (enlivenedObjects && enlivenedObjects[0]) {
+              const newObj = enlivenedObjects[0];
+              canvasInstance.add(newObj);
+              canvasInstance.renderAll();
+            }
             advanceWatermarkContiguously(data?.eventId);
           } finally {
             isReceivingUpdate.current = false;
