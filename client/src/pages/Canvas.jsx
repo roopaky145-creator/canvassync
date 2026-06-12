@@ -377,6 +377,9 @@ const Canvas = () => {
           isReceivingUpdate.current = false;
         }
       } else {
+        if (data.objectData && data.objectData.type === 'image') {
+          data.objectData.crossOrigin = 'anonymous';
+        }
         // When an object from the socket is NOT found on the local canvas:
         fabric.util.enlivenObjects([data.objectData], (enlivenedObjects) => {
           try {
@@ -530,7 +533,7 @@ const Canvas = () => {
         } finally {
           isReceivingUpdate.current = false;
         }
-      });
+      }, { crossOrigin: 'anonymous' });
     });
 
     const advanceWatermarkContiguously = (completedId) => {
@@ -585,7 +588,7 @@ const Canvas = () => {
             } finally {
               isReceivingUpdate.current = false;
             }
-          });
+          }, { crossOrigin: 'anonymous' });
         }
       });
       pendingUpdatesRef.current = []; // Clear the queue
