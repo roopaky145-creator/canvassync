@@ -39,6 +39,7 @@ const Canvas = () => {
   const serverWatermarkRef = useRef(0);
   const completedEventIdsRef = useRef(new Set());
   const pendingUpdatesRef = useRef([]); // The Event Buffer
+  const pendingImagePositionsRef = useRef({}); // Buffered positions for AI images from generating client
   const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const currentColorRef = useRef(brushColor);
@@ -90,6 +91,7 @@ const Canvas = () => {
     if (serverWatermarkRef) serverWatermarkRef.current = 0;
     if (completedEventIdsRef) completedEventIdsRef.current.clear();
     pendingUpdatesRef.current = [];
+    pendingImagePositionsRef.current = {};
     pendingLocksRef.current = null;
     if (lastAddedObjectRef) lastAddedObjectRef.current = null;
     if (redoObjectRef) redoObjectRef.current = null;
@@ -379,9 +381,10 @@ const Canvas = () => {
           isReceivingUpdate.current = false;
         }
       } else {
-        // If this is an image with no src, skip creation entirely.
-        // The ai_image_generated handler will add the real image with pixels.
+        // If this is an image with no src, it would create a ghost bounding box.
+        // Buffer the position data so the ai_image_generated handler can use it.
         if (data.objectData && data.objectData.type === 'image' && !data.objectData.src) {
+          pendingImagePositionsRef.current[data.objectData.id] = data.objectData;
           advanceWatermarkContiguously(data?.eventId);
           isReceivingUpdate.current = false;
           return;
@@ -554,6 +557,16 @@ const Canvas = () => {
           scaleY: scale
         });
 
+        // Apply buffered position from the generating client if available
+        const bufferedPos = pendingImagePositionsRef.current[data.imageId];
+        if (bufferedPos) {
+          const safePos = { ...bufferedPos };
+          delete safePos.src;
+          delete safePos.type;
+          img.set(safePos);
+          delete pendingImagePositionsRef.current[data.imageId];
+        }
+
         try {
           isReceivingUpdate.current = true;
           canvas.add(img);
@@ -562,6 +575,8 @@ const Canvas = () => {
         } finally {
           isReceivingUpdate.current = false;
         }
+        // Broadcast final position so the server ledger records it for late joiners
+        socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(img) });
       }, { crossOrigin: 'anonymous' });
     });
 
@@ -627,6 +642,16 @@ const Canvas = () => {
               scaleX: scale,
               scaleY: scale
             });
+
+            // Apply buffered position from the generating client if available
+            const bufferedPos = pendingImagePositionsRef.current[data.imageId];
+            if (bufferedPos) {
+              const safePos = { ...bufferedPos };
+              delete safePos.src;
+              delete safePos.type;
+              img.set(safePos);
+              delete pendingImagePositionsRef.current[data.imageId];
+            }
 
             try {
               isReceivingUpdate.current = true;
