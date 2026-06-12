@@ -435,6 +435,11 @@ const Canvas = () => {
     // ── PHASE 3: LOCKING LISTENERS ──────────────────────────────
     socket.on('lock_acquired', (data) => {
       if (data.lockedBy === socket.id) return;
+      if (isBoardLoadingRef.current) {
+        if (!pendingLocksRef.current) pendingLocksRef.current = {};
+        pendingLocksRef.current[data.object_id] = data.lockedBy;
+        return;
+      }
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (obj) {
         if (obj.selectable === false) return;
@@ -456,6 +461,12 @@ const Canvas = () => {
     });
 
     socket.on('lock_released', (data) => {
+      if (isBoardLoadingRef.current) {
+        if (pendingLocksRef.current) {
+          delete pendingLocksRef.current[data.object_id];
+        }
+        return;
+      }
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
       if (!obj) return;
 
