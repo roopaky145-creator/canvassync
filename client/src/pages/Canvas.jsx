@@ -31,6 +31,13 @@ const Canvas = () => {
   const [activeTool, setActiveTool] = useState('select');
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(2);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isBoardLoading, setIsBoardLoading] = useState(true);
+  const isBoardLoadingRef = useRef(true);
+  const serverWatermarkRef = useRef(0);
+  const completedEventIdsRef = useRef(new Set());
+  const pendingUpdatesRef = useRef([]); // The Event Buffer
+  const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const currentColorRef = useRef(brushColor);
   const currentWidthRef = useRef(brushWidth);
@@ -74,6 +81,18 @@ const Canvas = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
+    // Reset hydration and undo/redo state when switching rooms without unmounting
+    isBoardLoadingRef.current = true;
+    if (serverWatermarkRef) serverWatermarkRef.current = 0;
+    if (completedEventIdsRef) completedEventIdsRef.current.clear();
+    pendingUpdatesRef.current = [];
+    pendingLocksRef.current = null;
+    if (lastAddedObjectRef) lastAddedObjectRef.current = null;
+    if (redoObjectRef) redoObjectRef.current = null;
+    setIsBoardLoading(true);
+
     const socket = io(process.env.REACT_APP_BACKEND_URL);
     socketRef.current = socket;
     const canvas = new fabric.Canvas('canvas-el');
@@ -106,7 +125,11 @@ const Canvas = () => {
 
     // 1. Register listener FIRST
     socket.on('sync_active_locks_on_join', (locksMap) => {
-      applyActiveLocks(locksMap);
+      if (isBoardLoadingRef.current) {
+        pendingLocksRef.current = locksMap;
+      } else {
+        applyActiveLocks(locksMap);
+      }
     });
 
     // 2. Emit join SECOND
@@ -114,6 +137,7 @@ const Canvas = () => {
 
     // ── EMIT SIDE ────────────────────────────────────────────────
     canvas.on('object:added', (e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       if (!e.target.id) e.target.set('id', uuidv4());
       if (!isReceivingUpdate.current && !isDrawingShape) {
         socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
@@ -121,6 +145,7 @@ const Canvas = () => {
     });
 
     const throttledMove = throttle((e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
     }, 50);
@@ -128,12 +153,14 @@ const Canvas = () => {
     canvas.on('object:moving', throttledMove);
 
     canvas.on('object:modified', (e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       throttledMove.flush();
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
     });
 
     canvas.on('object:removed', (e) => {
+      if (isBoardLoadingRef && isBoardLoadingRef.current) return;
       if (!e.target.id) return; // guard: never emit delete for objects without an ID
       if (isReceivingUpdate.current) return;
       socket.emit('canvas_delete', { roomCode, objectId: e.target.id });
@@ -145,10 +172,12 @@ const Canvas = () => {
       redoObjectRef.current = null;
     });
 
-    canvas.on('mouse:down', (e) => {
-      if (window.CANVAS_ACTIVE_TOOL === 'eraser' && e.target) {
-        if (!e.target.id) return; // Guard against unsynced objects
-        canvas.remove(e.target);
+    canvas.on('mouse:down', (opt) => {
+      const tool = window.CANVAS_ACTIVE_TOOL || 'select';
+      if (tool === 'eraser' && opt.target) {
+        canvas.remove(opt.target);
+        // The object:removed listener will handle the socket broadcast
+        return;
       }
     });
 
@@ -182,8 +211,7 @@ const Canvas = () => {
         lastAddedObjectRef.current = textObj;
         redoObjectRef.current = null;
         
-        window.CANVAS_ACTIVE_TOOL = 'select';
-        setActiveTool('select');
+        // Removed setActiveTool('select') so the user stays in edit mode to type
         return;
       }
 
@@ -314,26 +342,21 @@ const Canvas = () => {
     window.addEventListener('keydown', handleKeyDown);
 
     // ── RECEIVE SIDE ─────────────────────────────────────────────
-    socket.on('canvas_update', (data) => {
-      // Only skip if WE are the lock owner (i.e., we're actively moving it).
-      // If someone else owns the lock and sends an update, we still apply it.
-      const activeObj = canvas.getActiveObject();
+    const handleCanvasUpdate = (data, canvasInstance = canvas) => {
+      const activeObj = canvasInstance.getActiveObject();
       if (activeObj?.id === data.objectData.id && !activeObj._lockedBy) return;
       isReceivingUpdate.current = true;
-      const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
+      const existing = canvasInstance.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
         try {
           if (data.objectData.type === 'line') {
-            // Fix Fabric.js Line sync by separating coordinates from bounding box
             const { x1, y1, x2, y2, left, top, ...rest } = data.objectData;
-            existing.set(rest);               // Apply styling first
-            existing.set({ x1, y1, x2, y2 }); // Apply points
-            existing.set({ left, top });      // Force bounding box position
+            existing.set(rest);
+            existing.set({ x1, y1, x2, y2 });
+            existing.set({ left, top });
           } else {
             existing.set(data.objectData);
           }
-          
-          // Re-enforce lock visual state if this object is currently locked by someone else
           if (existing._lockedBy && existing._lockedBy !== socket.id) {
             existing.set({
               selectable: false,
@@ -342,29 +365,47 @@ const Canvas = () => {
               strokeWidth: existing._originalStrokeWidth || existing.strokeWidth || 0
             });
           }
-          
           existing.setCoords();
-          canvas.renderAll();
+          canvasInstance.renderAll();
+          advanceWatermarkContiguously(data?.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
       } else {
         fabric.util.enlivenObjects([data.objectData], (objects) => {
           try {
-            objects.forEach(obj => canvas.add(obj));
-            canvas.renderAll();
+            objects.forEach(obj => canvasInstance.add(obj));
+            canvasInstance.renderAll();
+            advanceWatermarkContiguously(data?.eventId);
           } finally {
             isReceivingUpdate.current = false;
           }
         });
       }
+    };
+
+    socket.on('canvas_update', (data) => {
+      if (isBoardLoadingRef.current) {
+        pendingUpdatesRef.current.push({ event: 'canvas_update', data });
+        return;
+      }
+      handleCanvasUpdate(data);
     });
 
-    socket.on('canvas_delete', (data) => {
+    const handleCanvasDelete = (data, canvasInstance = canvas) => {
       isReceivingUpdate.current = true;
-      const obj = canvas.getObjects().find(o => o.id === data.objectId);
-      if (obj) { canvas.remove(obj); canvas.renderAll(); }
+      const obj = canvasInstance.getObjects().find(o => o.id === data.objectId);
+      if (obj) { canvasInstance.remove(obj); canvasInstance.renderAll(); }
+      advanceWatermarkContiguously(data?.eventId);
       isReceivingUpdate.current = false;
+    };
+
+    socket.on('canvas_delete', (data) => {
+      if (isBoardLoadingRef.current) {
+        pendingUpdatesRef.current.push({ event: 'canvas_delete', data });
+        return;
+      }
+      handleCanvasDelete(data);
     });
 
     // ── PHASE 3: LOCKING LISTENERS ──────────────────────────────
@@ -476,48 +517,142 @@ const Canvas = () => {
           isReceivingUpdate.current = true;
           canvas.add(img);
           canvas.renderAll();
+          advanceWatermarkContiguously(data?.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
       });
     });
 
-    // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
-    const loadBoard = async () => {
-      try {
-        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.canvasState) {
-            canvas.loadFromJSON(data.canvasState, () => {
-              canvas.renderAll();
-              // Board is fully loaded. Safe to request and apply active locks now.
-              socket.emit('request_lock_sync', roomCode);
-            });
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load board state', err);
+    const advanceWatermarkContiguously = (completedId) => {
+      if (!completedId) return;
+
+      // Add the finished event to the waiting room
+      completedEventIdsRef.current.add(completedId);
+
+      // Only advance the watermark if the NEXT expected sequence ID is in the waiting room
+      let nextExpected = serverWatermarkRef.current + 1;
+      while (completedEventIdsRef.current.has(nextExpected)) {
+        completedEventIdsRef.current.delete(nextExpected); // Clean up memory
+        serverWatermarkRef.current = nextExpected;
+        nextExpected++;
       }
+    };
+
+    // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
+    const flushEventBuffer = (canvasInstance) => {
+      pendingUpdatesRef.current.forEach(({ event, data }) => {
+        if (event === 'canvas_update') {
+          handleCanvasUpdate(data, canvasInstance);
+        } else if (event === 'canvas_delete') {
+          handleCanvasDelete(data, canvasInstance);
+        } else if (event === 'ai_image_generated') {
+          if (!data?.base64 || !data?.imageId) return;
+          const alreadyExists = canvasInstance.getObjects().find(o => o.id === data.imageId);
+          if (alreadyExists) return;
+
+          fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img, isError) => {
+            if (isError || !img || !img.width || !img.height) return;
+            if (canvasInstance.getObjects().find(o => o.id === data.imageId)) return;
+
+            const maxImageSize = Math.min(320, canvasInstance.getWidth() * 0.35, canvasInstance.getHeight() * 0.35);
+            const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
+            const centerLeft = Math.round((canvasInstance.getWidth() / 2) - (img.width * scale / 2));
+            const centerTop = Math.round((canvasInstance.getHeight() / 2) - (img.height * scale / 2));
+
+            img.set({
+              left: centerLeft,
+              top: centerTop,
+              id: data.imageId,
+              scaleX: scale,
+              scaleY: scale
+            });
+
+            try {
+              isReceivingUpdate.current = true;
+              canvasInstance.add(img);
+              canvasInstance.renderAll();
+              advanceWatermarkContiguously(data?.eventId);
+            } finally {
+              isReceivingUpdate.current = false;
+            }
+          });
+        }
+      });
+      pendingUpdatesRef.current = []; // Clear the queue
+    };
+
+    socket.on('sync_transient_ledger', (ledgerEvents) => {
+      if (!canvasRef.current) return;
+
+      // Merge: Older ledger events FIRST, then newer live network events
+      if (ledgerEvents && ledgerEvents.length > 0) {
+        // If we are a fresh client joining late, jump our baseline to just before the ledger starts
+        if (serverWatermarkRef.current === 0) {
+          serverWatermarkRef.current = ledgerEvents[0].eventId - 1;
+        }
+        pendingUpdatesRef.current = [...ledgerEvents, ...pendingUpdatesRef.current];
+      }
+
+      flushEventBuffer(canvasRef.current);
+
+      // Resolve loading state
+      isBoardLoadingRef.current = false;
+      setIsBoardLoading(false);
+    });
+
+    const loadBoard = async () => {
+      fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/load`)
+        .then(res => {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .then(data => {
+          if (!isMounted) return; 
+
+          if (data && data.canvasState) {
+            canvas.loadFromJSON(data.canvasState, () => {
+              if (!isMounted) return; 
+              canvas.renderAll();
+              applyActiveLocks(pendingLocksRef?.current || {});
+
+              socket.emit('request_transient_ledger', roomCode);
+            });
+          } else {
+            // Board doesn't exist in DB yet, but we MUST fetch the transient ledger for late joiners!
+            socket.emit('request_transient_ledger', roomCode);
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load board:", err);
+          if (isMounted) {
+            // Even on network error, try to fetch the live ledger
+            socket.emit('request_transient_ledger', roomCode);
+          }
+        });
     };
     loadBoard();
 
     return () => {
+      isMounted = false;
       throttledMove.cancel();
       window.removeEventListener('keydown', handleKeyDown);
       socket.disconnect();
       canvas.dispose();
+      window.CANVAS_ACTIVE_TOOL = 'select';
     };
   }, [roomCode]);
 
   useEffect(() => {
-    // Single source of truth for the global tool flag — eliminates stale leaks across remounts
+    // Single source of truth for the global tool flag
     window.CANVAS_ACTIVE_TOOL = activeTool;
 
     if (!canvasRef.current) return;
     
+    // Clean, single declarations
     const isShapeTool = ['rect', 'circle', 'line', 'text'].includes(activeTool);
-    
+    const shouldDisableSelection = isShapeTool || activeTool === 'pen' || activeTool === 'eraser';
+
     if (activeTool === 'pen' || activeTool === 'eraser') {
       canvasRef.current.isDrawingMode = true;
       canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
@@ -525,22 +660,20 @@ const Canvas = () => {
     } else {
       canvasRef.current.isDrawingMode = false;
     }
-
-    // When a shape drawing tool is active, disable selection on all existing
-    // objects so clicking on them doesn't select+drag them instead of drawing.
-    // skipTargetFind = true tells Fabric.js to not even look for objects
-    // under the cursor, completely preventing accidental selection/drag.
-    const shouldDisableSelection = isShapeTool || activeTool === 'pen' || activeTool === 'eraser';
+    
     canvasRef.current.selection = !shouldDisableSelection;
-    canvasRef.current.skipTargetFind = shouldDisableSelection;
+    // ONLY skip targeting for the Pen tool so Eraser can still find objects to click
+    canvasRef.current.skipTargetFind = activeTool === 'pen';
+    
     canvasRef.current.forEachObject((obj) => {
-      // Don't touch objects that are locked by another user
       if (obj._lockedBy) return;
+      
       obj.set({
         selectable: !shouldDisableSelection,
-        evented: !shouldDisableSelection
+        evented: activeTool === 'eraser' ? true : !shouldDisableSelection
       });
     });
+    
     canvasRef.current.discardActiveObject();
     canvasRef.current.renderAll();
 
@@ -549,6 +682,7 @@ const Canvas = () => {
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => {
+    setIsSaving(true);
     const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
     
     // Scrub ephemeral lock state to keep the DB clean
@@ -573,12 +707,22 @@ const Canvas = () => {
       });
     }
 
-    const jsonString = JSON.stringify(canvasJSON);
-    if ((new Blob([jsonString]).size / (1024 * 1024)) > 15) {
-      alert('Cannot save: Board exceeds 15MB limit. Please remove some AI images.');
+    // Add Timestamp for Concurrency Guard
+    const payload = { 
+      canvasState: canvasJSON,
+      timestamp: Date.now(),
+      watermark: serverWatermarkRef.current
+    };
+    const jsonString = JSON.stringify(payload);
+    const sizeInMB = new Blob([jsonString]).size / (1024 * 1024);
+
+    if (sizeInMB > 15) {
+      alert(`Cannot save: Board is ${sizeInMB.toFixed(1)}MB. The maximum size is 15MB. Please remove some AI images.`);
+      setIsSaving(false);
       return;
     }
 
+    // 4. Send to server
     try {
       await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/board/${roomCode}/save`, {
         method: 'POST',
@@ -589,12 +733,23 @@ const Canvas = () => {
     } catch (error) {
       console.error('Save failed:', error);
       alert('Failed to save board.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      backgroundColor: '#f3f4f6', // Soft grey "desk" background
+      minHeight: '100vh', 
+      paddingTop: '40px',
+      overflowX: 'hidden'
+    }}>
       <Toolbar 
+        isSaving={isSaving}
         activeTool={activeTool} 
         setActiveTool={setActiveTool} 
         onSave={handleSave} 
@@ -606,7 +761,24 @@ const Canvas = () => {
         setBrushWidth={setBrushWidth} 
       />
       <AIPromptPanel roomCode={roomCode} />
-      <canvas id="canvas-el" width={1200} height={700} />
+      <div style={{ 
+        position: 'relative', 
+        width: '1200px', 
+        height: '700px',
+        backgroundColor: '#ffffff', // Pure white paper
+        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)', // Drop shadow
+        marginTop: '20px', // Space below toolbar
+        borderRadius: '8px' // Optional: slightly rounded corners for modern feel
+      }}>
+        {isBoardLoading && (
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+            <div className="spinner" style={{ width: '50px', height: '50px', border: '5px solid #ccc', borderTopColor: '#333', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+            <h2 style={{ marginTop: '20px', color: '#333' }}>Loading Workspace...</h2>
+            <p style={{ color: '#666' }}>Downloading AI assets and synchronizing state</p>
+          </div>
+        )}
+        <canvas id="canvas-el" width={1200} height={700} />
+      </div>
     </div>
   );
 };

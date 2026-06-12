@@ -2,6 +2,9 @@ const activeLocks = new Map(); // module scope — ONE instance for the entire p
 
 // activeRoomLocks[roomCode] = { objectId: socketId, ... }
 const activeRoomLocks = {};
+
+const roomTransientLedger = {};
+const roomEventCounters = {};
 function registerRoomHandlers(io, socket) {
   socket.on('join_room', (roomCode) => {
     if (socket.roomCode) socket.leave(socket.roomCode);
@@ -10,6 +13,10 @@ function registerRoomHandlers(io, socket) {
     if (activeRoomLocks[roomCode]) {
       socket.emit('sync_active_locks_on_join', activeRoomLocks[roomCode]);
     }
+  });
+
+  socket.on('request_transient_ledger', (roomCode) => {
+    socket.emit('sync_transient_ledger', roomTransientLedger[roomCode] || []);
   });
 
   socket.on('request_lock_sync', (roomCode) => {
@@ -27,6 +34,13 @@ function registerRoomHandlers(io, socket) {
       return;
     }
     
+    if (!roomEventCounters[data.roomCode]) roomEventCounters[data.roomCode] = 0;
+    const eventId = ++roomEventCounters[data.roomCode];
+    data.eventId = eventId; // Embed directly in the payload
+
+    if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
+    roomTransientLedger[data.roomCode].push({ event: 'canvas_update', data, timestamp: Date.now(), eventId });
+
     socket.to(data.roomCode).emit('canvas_update', data);
   });
 
@@ -40,7 +54,15 @@ function registerRoomHandlers(io, socket) {
     }
 
     activeLocks.delete(lockKey);
-    socket.to(data.roomCode).emit('canvas_delete', { objectId: data.objectId });
+
+    if (!roomEventCounters[data.roomCode]) roomEventCounters[data.roomCode] = 0;
+    const eventId = ++roomEventCounters[data.roomCode];
+    data.eventId = eventId; // Embed directly in the payload
+
+    if (!roomTransientLedger[data.roomCode]) roomTransientLedger[data.roomCode] = [];
+    roomTransientLedger[data.roomCode].push({ event: 'canvas_delete', data, timestamp: Date.now(), eventId });
+
+    socket.to(data.roomCode).emit('canvas_delete', data);
   });
 
   // Acquire a lock — first come, first served (room-scoped)
@@ -91,4 +113,4 @@ function registerRoomHandlers(io, socket) {
   });
 }
 
-module.exports = { registerRoomHandlers, activeLocks };
+module.exports = { registerRoomHandlers, activeLocks, roomTransientLedger, roomEventCounters };

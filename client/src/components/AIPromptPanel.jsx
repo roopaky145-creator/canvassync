@@ -46,7 +46,7 @@ const AIPromptPanel = ({ roomCode }) => {
   };
 
   return (
-    <div className="ai-prompt-panel">
+    <div className="ai-prompt-panel" style={{ position: 'fixed', top: '100px', right: '30px', zIndex: 100 }}>
       <h3 className="ai-prompt-header">AI Canvas Generator</h3>
       <textarea
         className="ai-prompt-input"
