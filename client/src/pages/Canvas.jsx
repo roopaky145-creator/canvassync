@@ -379,6 +379,15 @@ const Canvas = () => {
           isReceivingUpdate.current = false;
         }
       } else {
+        // If this is an image with no src, it would create a ghost bounding box.
+        // This happens when a canvas_update arrives for an AI image before
+        // the ai_image_generated event has finished its async fromURL load.
+        // Skip creation entirely — the ai_image_generated handler will add the real image.
+        if (data.objectData && data.objectData.type === 'image' && !data.objectData.src) {
+          advanceWatermarkContiguously(data?.eventId);
+          isReceivingUpdate.current = false;
+          return;
+        }
         if (data.objectData && data.objectData.type === 'image') {
           data.objectData.crossOrigin = 'anonymous';
         }
@@ -496,8 +505,19 @@ const Canvas = () => {
       }
 
       // Guard: if this image was already added (e.g. duplicate event), skip
+      // BUT if the existing object is a ghost (no _element or zero dimensions), replace it
       const alreadyExists = canvas.getObjects().find(o => o.id === data.imageId);
-      if (alreadyExists) return;
+      if (alreadyExists) {
+        // Check if the existing object is actually a ghost (empty bounding box)
+        const isGhost = alreadyExists.type === 'image' && (!alreadyExists._element || !alreadyExists._element.naturalWidth);
+        if (isGhost) {
+          isReceivingUpdate.current = true;
+          canvas.remove(alreadyExists);
+          isReceivingUpdate.current = false;
+        } else {
+          return; // Real image exists, skip
+        }
+      }
 
       if (getBase64ByteSize(data.base64) > AI_IMAGE_SIZE_LIMIT_BYTES) {
         console.warn('[CanvasSync] AI image exceeds 200KB. It will not be persisted on save.');
@@ -510,7 +530,18 @@ const Canvas = () => {
         }
 
         // Guard again after async fromURL — another event could have added it
-        if (canvas.getObjects().find(o => o.id === data.imageId)) return;
+        // But allow replacing ghosts (objects with no rendered pixels)
+        const existingAfterLoad = canvas.getObjects().find(o => o.id === data.imageId);
+        if (existingAfterLoad) {
+          const isGhost = existingAfterLoad.type === 'image' && (!existingAfterLoad._element || !existingAfterLoad._element.naturalWidth);
+          if (isGhost) {
+            isReceivingUpdate.current = true;
+            canvas.remove(existingAfterLoad);
+            isReceivingUpdate.current = false;
+          } else {
+            return; // Real image exists, skip
+          }
+        }
 
         const maxImageSize = Math.min(320, canvas.getWidth() * 0.35, canvas.getHeight() * 0.35);
         const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
@@ -563,11 +594,20 @@ const Canvas = () => {
         } else if (event === 'ai_image_generated') {
           if (!data?.base64 || !data?.imageId) return;
           const alreadyExists = canvasInstance.getObjects().find(o => o.id === data.imageId);
-          if (alreadyExists) return;
+          if (alreadyExists) {
+            const isGhost = alreadyExists.type === 'image' && (!alreadyExists._element || !alreadyExists._element.naturalWidth);
+            if (isGhost) {
+              isReceivingUpdate.current = true;
+              canvasInstance.remove(alreadyExists);
+              isReceivingUpdate.current = false;
+            } else {
+              return;
+            }
+          }
 
           fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img, isError) => {
             if (isError || !img || !img.width || !img.height) return;
-            if (canvasInstance.getObjects().find(o => o.id === data.imageId)) return;
+            if (canvasInstance.getObjects().find(o => o.id === data.imageId && o._element && o._element.naturalWidth)) return;
 
             const maxImageSize = Math.min(320, canvasInstance.getWidth() * 0.35, canvasInstance.getHeight() * 0.35);
             const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
