@@ -461,7 +461,6 @@ const Canvas = () => {
           _lockedBy: data.lockedBy
         });
         canvas.renderAll();
-      }
     });
 
     socket.on('lock_released', (data) => {
