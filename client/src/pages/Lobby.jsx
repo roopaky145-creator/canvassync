@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './Lobby.css';
 
 const Lobby = () => {
   const [inputValue, setInputValue] = useState('');
@@ -39,34 +40,34 @@ const Lobby = () => {
   };
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>CanvasSync Lobby</h1>
+    <div className="lobby-card">
+      <h1 className="lobby-title">CanvasSync Lobby</h1>
       
-      <div style={{ marginBottom: '2rem' }}>
-        <h2>Create a New Room</h2>
+      <div className="lobby-section">
+        <h2 className="lobby-subtitle">Create a New Room</h2>
         <button 
           onClick={handleCreateRoom} 
           disabled={isCreating}
-          style={{ padding: '0.5rem 1rem', cursor: isCreating ? 'not-allowed' : 'pointer' }}
+          className="lobby-button"
         >
           {isCreating ? 'Creating...' : 'Create Room'}
         </button>
-        {error && <p style={{ color: 'red' }}>{error}</p>}
+        {error && <p className="lobby-error">{error}</p>}
       </div>
 
-      <div>
-        <h2>Join an Existing Room</h2>
+      <div className="lobby-section">
+        <h2 className="lobby-subtitle">Join an Existing Room</h2>
         <input 
           type="text" 
           value={inputValue} 
           onChange={(e) => setInputValue(e.target.value)} 
           placeholder="Enter room code"
-          style={{ padding: '0.5rem', marginRight: '0.5rem' }}
+          className="lobby-input"
         />
         <button 
           onClick={handleJoinRoom}
           disabled={!inputValue.trim()}
-          style={{ padding: '0.5rem 1rem', cursor: !inputValue.trim() ? 'not-allowed' : 'pointer' }}
+          className="lobby-button"
         >
           Join
         </button>
