@@ -8,6 +8,8 @@ import { fabric } from 'fabric';
 import Toolbar from '../components/Toolbar';
 import AIPromptPanel from '../components/AIPromptPanel';
 
+fabric.Image.prototype.crossOrigin = 'anonymous';
+
 const AI_IMAGE_SIZE_LIMIT_BYTES = 200 * 1024;
 
 const getBase64ByteSize = (base64) => {
@@ -623,7 +625,17 @@ const Canvas = () => {
           if (!isMounted) return; 
 
           if (data && data.canvasState) {
-            canvas.loadFromJSON(data.canvasState, () => {
+            let parsedState = typeof data.canvasState === 'string' ? JSON.parse(data.canvasState) : data.canvasState;
+
+            if (parsedState && parsedState.objects) {
+              parsedState.objects.forEach(obj => {
+                if (obj.type === 'image') {
+                  obj.crossOrigin = 'anonymous';
+                }
+              });
+            }
+
+            canvas.loadFromJSON(parsedState, () => {
               if (!isMounted) return; 
               canvas.renderAll();
               applyActiveLocks(pendingLocksRef?.current || {});
@@ -695,7 +707,7 @@ const Canvas = () => {
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => {
     setIsSaving(true);
-    const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
+    const canvasJSON = canvasRef.current.toJSON(['crossOrigin', 'id', 'eventId', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
     
     // Scrub ephemeral lock state to keep the DB clean
     if (canvasJSON && canvasJSON.objects) {
