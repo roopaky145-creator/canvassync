@@ -691,6 +691,7 @@ const Canvas = () => {
       }
 
       flushEventBuffer(canvasRef.current);
+      applyActiveLocks(pendingLocksRef?.current || {});
 
       // Resolve loading state
       isBoardLoadingRef.current = false;
