@@ -441,8 +441,12 @@ const Canvas = () => {
         return;
       }
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
-      if (obj) {
-        if (obj.selectable === false) return;
+      if (!obj) {
+        if (!pendingLocksRef.current) pendingLocksRef.current = {};
+        pendingLocksRef.current[data.object_id] = data.lockedBy;
+        return;
+      }
+      if (obj.selectable === false) return;
         // Save original appearance for restoration on unlock
         obj.set({
           _originalOpacity: obj.opacity || 1,
@@ -468,7 +472,10 @@ const Canvas = () => {
         return;
       }
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
-      if (!obj) return;
+      if (!obj) {
+        if (pendingLocksRef.current) delete pendingLocksRef.current[data.object_id];
+        return;
+      }
 
       // Only restore visual properties if this object was actually locked
       // on THIS client. If we were the locker, _lockedBy was never set
@@ -581,6 +588,21 @@ const Canvas = () => {
         try {
           isReceivingUpdate.current = true;
           canvas.add(img);
+
+          const pendingLockSocketId = pendingLocksRef.current?.[data.imageId];
+          if (pendingLockSocketId && pendingLockSocketId !== socket.id) {
+            img.set({
+              _originalOpacity: img.opacity || 1,
+              _originalStroke: img.stroke,
+              _originalStrokeWidth: img.strokeWidth || 0,
+              selectable: false,
+              evented: false,
+              opacity: 0.5,
+              _lockedBy: pendingLockSocketId
+            });
+            delete pendingLocksRef.current[data.imageId];
+          }
+
           canvas.renderAll();
           advanceWatermarkContiguously(data?.eventId);
         } finally {
@@ -667,6 +689,21 @@ const Canvas = () => {
             try {
               isReceivingUpdate.current = true;
               canvasInstance.add(img);
+
+              const pendingLockSocketId = pendingLocksRef.current?.[data.imageId];
+              if (pendingLockSocketId && pendingLockSocketId !== socket.id) {
+                img.set({
+                  _originalOpacity: img.opacity || 1,
+                  _originalStroke: img.stroke,
+                  _originalStrokeWidth: img.strokeWidth || 0,
+                  selectable: false,
+                  evented: false,
+                  opacity: 0.5,
+                  _lockedBy: pendingLockSocketId
+                });
+                delete pendingLocksRef.current[data.imageId];
+              }
+
               canvasInstance.renderAll();
               advanceWatermarkContiguously(data?.eventId);
             } finally {
