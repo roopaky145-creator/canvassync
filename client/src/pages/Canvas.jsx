@@ -6,6 +6,25 @@ import { throttle } from 'lodash';
 import { fabric } from 'fabric';
 
 import Toolbar from '../components/Toolbar';
+import AIPromptPanel from '../components/AIPromptPanel';
+
+const AI_IMAGE_SIZE_LIMIT_BYTES = 200 * 1024;
+
+const getBase64ByteSize = (base64) => {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+};
+
+// Strip heavy base64 src from image objects before sending over socket.
+// AI images are already loaded on all clients via ai_image_generated broadcast,
+// so we only need to sync position/scale/rotation — not the multi-MB src payload.
+const getCompactObjectData = (obj) => {
+  const data = obj.toJSON(['id']);
+  if (data.type === 'image' && data.src && data.src.length > 1000) {
+    delete data.src;
+  }
+  return data;
+};
 
 const Canvas = () => {
   const { code: roomCode } = useParams();
@@ -13,13 +32,14 @@ const Canvas = () => {
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushWidth, setBrushWidth] = useState(2);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
-const currentColorRef = useRef(brushColor);
-const currentWidthRef = useRef(brushWidth);
+  const currentColorRef = useRef(brushColor);
+  const currentWidthRef = useRef(brushWidth);
 
-useEffect(() => {
+  useEffect(() => {
     currentColorRef.current = brushColor;
     currentWidthRef.current = brushWidth;
-}, [brushColor, brushWidth]);
+  }, [brushColor, brushWidth]);
+
   const isReceivingUpdate = useRef(false); // Prevents infinite broadcast loops
   const socketRef = useRef(null);         // Exposed for Phase 4 AI panel
   const lastAddedObjectRef = useRef(null);
@@ -65,13 +85,13 @@ useEffect(() => {
     canvas.on('object:added', (e) => {
       if (!e.target.id) e.target.set('id', uuidv4());
       if (!isReceivingUpdate.current && !isDrawingShape) {
-        socket.emit('canvas_update', { roomCode, objectData: e.target.toJSON(['id']) });
+        socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
       }
     });
 
     const throttledMove = throttle((e) => {
       if (isReceivingUpdate.current) return;
-      socket.emit('canvas_update', { roomCode, objectData: e.target.toJSON(['id']) });
+      socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
     }, 50);
 
     canvas.on('object:moving', throttledMove);
@@ -79,7 +99,7 @@ useEffect(() => {
     canvas.on('object:modified', (e) => {
       throttledMove.flush();
       if (isReceivingUpdate.current) return;
-      socket.emit('canvas_update', { roomCode, objectData: e.target.toJSON(['id']) });
+      socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(e.target) });
     });
 
     canvas.on('object:removed', (e) => {
@@ -136,7 +156,9 @@ useEffect(() => {
         return;
       }
 
+      // Discard any active selection so existing objects don't move with the mouse
       canvas.discardActiveObject();
+      canvas.renderAll();
 
       isDrawingShape = true;
       drawingTool = tool;
@@ -314,7 +336,7 @@ useEffect(() => {
       isReceivingUpdate.current = false;
     });
 
-    // ── PHASE 3: HIMANSHU ADDS LOCKING LISTENERS HERE ────────────
+    // ── PHASE 3: LOCKING LISTENERS ──────────────────────────────
     socket.on('lock_acquired', (data) => {
       if (data.lockedBy === socket.id) return;
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
@@ -339,9 +361,14 @@ useEffect(() => {
 
     socket.on('lock_released', (data) => {
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
-      if (obj) {
-        // Restore original appearance AND clear _lockedBy to prevent
-        // canvas_update handler from re-applying lock styling
+      if (!obj) return;
+
+      // Only restore visual properties if this object was actually locked
+      // on THIS client. If we were the locker, _lockedBy was never set
+      // (lock_acquired skips our own socket), so _originalStroke etc.
+      // were never saved — restoring them would set stroke to undefined
+      // and make the object invisible.
+      if (obj._lockedBy) {
         obj.set({
           selectable: true,
           evented: true,
@@ -351,6 +378,9 @@ useEffect(() => {
           _lockedBy: null
         });
         canvas.renderAll();
+      } else {
+        // We were the locker — just clear internal state, no visual change needed
+        obj._lockedBy = null;
       }
     });
 
@@ -372,7 +402,54 @@ useEffect(() => {
       if (requiresRender) canvas.renderAll();
     });
 
-    // ── PHASE 4: HIMANSHU ADDS ai_image_generated LISTENER HERE ──
+    // ── PHASE 4: AI IMAGE LISTENER ──────────────────────────────
+    socket.on('ai_image_generated', (data) => {
+      if (!data?.base64 || !data?.imageId) {
+        console.warn('[CanvasSync] AI image payload missing base64 or imageId.');
+        return;
+      }
+
+      // Guard: if this image was already added (e.g. duplicate event), skip
+      const alreadyExists = canvas.getObjects().find(o => o.id === data.imageId);
+      if (alreadyExists) return;
+
+      if (getBase64ByteSize(data.base64) > AI_IMAGE_SIZE_LIMIT_BYTES) {
+        console.warn('[CanvasSync] AI image exceeds 200KB. It will not be persisted on save.');
+      }
+
+      fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img, isError) => {
+        if (isError || !img || !img.width || !img.height) {
+          console.warn('[CanvasSync] Could not load generated AI image.');
+          return;
+        }
+
+        // Guard again after async fromURL — another event could have added it
+        if (canvas.getObjects().find(o => o.id === data.imageId)) return;
+
+        const maxImageSize = Math.min(320, canvas.getWidth() * 0.35, canvas.getHeight() * 0.35);
+        const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
+
+        // Place at fixed center of canvas so all clients see it in the same spot
+        const centerLeft = Math.round((canvas.getWidth() / 2) - (img.width * scale / 2));
+        const centerTop = Math.round((canvas.getHeight() / 2) - (img.height * scale / 2));
+
+        img.set({
+          left: centerLeft,
+          top: centerTop,
+          id: data.imageId,   // Use the server-provided ID so all clients share the same ID
+          scaleX: scale,
+          scaleY: scale
+        });
+
+        try {
+          isReceivingUpdate.current = true;
+          canvas.add(img);
+          canvas.renderAll();
+        } finally {
+          isReceivingUpdate.current = false;
+        }
+      });
+    });
 
     // ── PHASE 5: HIMANSHU ADDS loadBoard() CALL HERE ─────────────
 
@@ -390,6 +467,8 @@ useEffect(() => {
 
     if (!canvasRef.current) return;
     
+    const isShapeTool = ['rect', 'circle', 'line', 'text'].includes(activeTool);
+    
     if (activeTool === 'pen' || activeTool === 'eraser') {
       canvasRef.current.isDrawingMode = true;
       canvasRef.current.freeDrawingBrush.color = activeTool === 'eraser' ? '#ffffff' : brushColor;
@@ -397,6 +476,24 @@ useEffect(() => {
     } else {
       canvasRef.current.isDrawingMode = false;
     }
+
+    // When a shape drawing tool is active, disable selection on all existing
+    // objects so clicking on them doesn't select+drag them instead of drawing.
+    // skipTargetFind = true tells Fabric.js to not even look for objects
+    // under the cursor, completely preventing accidental selection/drag.
+    const shouldDisableSelection = isShapeTool || activeTool === 'pen' || activeTool === 'eraser';
+    canvasRef.current.selection = !shouldDisableSelection;
+    canvasRef.current.skipTargetFind = shouldDisableSelection;
+    canvasRef.current.forEachObject((obj) => {
+      // Don't touch objects that are locked by another user
+      if (obj._lockedBy) return;
+      obj.set({
+        selectable: !shouldDisableSelection,
+        evented: !shouldDisableSelection
+      });
+    });
+    canvasRef.current.discardActiveObject();
+    canvasRef.current.renderAll();
 
     return () => { window.CANVAS_ACTIVE_TOOL = 'select'; };
   }, [activeTool, brushColor, brushWidth]);
@@ -417,6 +514,7 @@ useEffect(() => {
         brushWidth={brushWidth} 
         setBrushWidth={setBrushWidth} 
       />
+      <AIPromptPanel roomCode={roomCode} />
       <canvas id="canvas-el" width={1200} height={700} />
     </div>
   );

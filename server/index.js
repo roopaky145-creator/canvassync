@@ -6,6 +6,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const roomsRouter = require('./routes/rooms');
+const aiRoutes = require('./routes/ai');
 const { registerRoomHandlers } = require('./socket/roomHandlers');
 
 const app = express();
@@ -29,6 +30,7 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.warn('MongoDB unavailable — real-time features still work. Reason:', err.message));
 
 app.use('/api/rooms', roomsRouter);
+app.use('/api/ai', aiRoutes(io));
 
 io.on('connection', socket => registerRoomHandlers(io, socket));
 
