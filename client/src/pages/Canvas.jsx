@@ -8,6 +8,8 @@ import { fabric } from 'fabric';
 import Toolbar from '../components/Toolbar';
 import AIPromptPanel from '../components/AIPromptPanel';
 
+fabric.Image.prototype.crossOrigin = 'anonymous';
+
 const AI_IMAGE_SIZE_LIMIT_BYTES = 200 * 1024;
 
 const getBase64ByteSize = (base64) => {
@@ -37,6 +39,7 @@ const Canvas = () => {
   const serverWatermarkRef = useRef(0);
   const completedEventIdsRef = useRef(new Set());
   const pendingUpdatesRef = useRef([]); // The Event Buffer
+  const pendingImagePositionsRef = useRef({}); // Buffered positions for AI images from generating client
   const pendingLocksRef = useRef(null);
   const canvasRef = useRef(null);        // Needed by handleSave in Phase 5
   const currentColorRef = useRef(brushColor);
@@ -88,6 +91,7 @@ const Canvas = () => {
     if (serverWatermarkRef) serverWatermarkRef.current = 0;
     if (completedEventIdsRef) completedEventIdsRef.current.clear();
     pendingUpdatesRef.current = [];
+    pendingImagePositionsRef.current = {};
     pendingLocksRef.current = null;
     if (lastAddedObjectRef) lastAddedObjectRef.current = null;
     if (redoObjectRef) redoObjectRef.current = null;
@@ -107,7 +111,7 @@ const Canvas = () => {
         if (lockedBySocketId === socket.id) return; 
 
         const obj = canvasRef.current.getObjects().find(o => o.id === objectId);
-        if (obj) {
+        if (obj && obj.selectable !== false) {
           obj.set({
             _originalOpacity: obj.opacity || 1,
             _originalStroke: obj.stroke,
@@ -354,6 +358,11 @@ const Canvas = () => {
             existing.set(rest);
             existing.set({ x1, y1, x2, y2 });
             existing.set({ left, top });
+          } else if (existing.type === 'image' || data.objectData.type === 'image') {
+            // For images, update coordinates/scaling but NEVER blindly overwrite the src via .set()
+            const safeData = { ...data.objectData };
+            delete safeData.src; 
+            existing.set(safeData);
           } else {
             existing.set(data.objectData);
           }
@@ -372,10 +381,25 @@ const Canvas = () => {
           isReceivingUpdate.current = false;
         }
       } else {
-        fabric.util.enlivenObjects([data.objectData], (objects) => {
+        // If this is an image with no src, it would create a ghost bounding box.
+        // Buffer the position data so the ai_image_generated handler can use it.
+        if (data.objectData && data.objectData.type === 'image' && !data.objectData.src) {
+          pendingImagePositionsRef.current[data.objectData.id] = data.objectData;
+          advanceWatermarkContiguously(data?.eventId);
+          isReceivingUpdate.current = false;
+          return;
+        }
+        if (data.objectData && data.objectData.type === 'image') {
+          data.objectData.crossOrigin = 'anonymous';
+        }
+        // When an object from the socket is NOT found on the local canvas:
+        fabric.util.enlivenObjects([data.objectData], (enlivenedObjects) => {
           try {
-            objects.forEach(obj => canvasInstance.add(obj));
-            canvasInstance.renderAll();
+            if (enlivenedObjects && enlivenedObjects[0]) {
+              const newObj = enlivenedObjects[0];
+              canvasInstance.add(newObj);
+              canvasInstance.renderAll();
+            }
             advanceWatermarkContiguously(data?.eventId);
           } finally {
             isReceivingUpdate.current = false;
@@ -411,9 +435,18 @@ const Canvas = () => {
     // ── PHASE 3: LOCKING LISTENERS ──────────────────────────────
     socket.on('lock_acquired', (data) => {
       if (data.lockedBy === socket.id) return;
+      if (isBoardLoadingRef.current) {
+        if (!pendingLocksRef.current) pendingLocksRef.current = {};
+        pendingLocksRef.current[data.object_id] = data.lockedBy;
+        return;
+      }
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
-      if (obj) {
-        if (obj.selectable === false) return;
+      if (!obj) {
+        if (!pendingLocksRef.current) pendingLocksRef.current = {};
+        pendingLocksRef.current[data.object_id] = data.lockedBy;
+        return;
+      }
+      if (obj.selectable === false) return;
         // Save original appearance for restoration on unlock
         obj.set({
           _originalOpacity: obj.opacity || 1,
@@ -428,12 +461,20 @@ const Canvas = () => {
           _lockedBy: data.lockedBy
         });
         canvas.renderAll();
-      }
     });
 
     socket.on('lock_released', (data) => {
+      if (isBoardLoadingRef.current) {
+        if (pendingLocksRef.current) {
+          delete pendingLocksRef.current[data.object_id];
+        }
+        return;
+      }
       const obj = canvas.getObjects().find(o => o.id === data.object_id);
-      if (!obj) return;
+      if (!obj) {
+        if (pendingLocksRef.current) delete pendingLocksRef.current[data.object_id];
+        return;
+      }
 
       // Only restore visual properties if this object was actually locked
       // on THIS client. If we were the locker, _lockedBy was never set
@@ -482,8 +523,18 @@ const Canvas = () => {
       }
 
       // Guard: if this image was already added (e.g. duplicate event), skip
+      // BUT if the existing object is a ghost (no rendered pixels), replace it
       const alreadyExists = canvas.getObjects().find(o => o.id === data.imageId);
-      if (alreadyExists) return;
+      if (alreadyExists) {
+        const isGhost = alreadyExists.type === 'image' && (!alreadyExists._element || !alreadyExists._element.naturalWidth);
+        if (isGhost) {
+          isReceivingUpdate.current = true;
+          canvas.remove(alreadyExists);
+          isReceivingUpdate.current = false;
+        } else {
+          return; // Real image exists, skip
+        }
+      }
 
       if (getBase64ByteSize(data.base64) > AI_IMAGE_SIZE_LIMIT_BYTES) {
         console.warn('[CanvasSync] AI image exceeds 200KB. It will not be persisted on save.');
@@ -496,7 +547,17 @@ const Canvas = () => {
         }
 
         // Guard again after async fromURL — another event could have added it
-        if (canvas.getObjects().find(o => o.id === data.imageId)) return;
+        const existingAfterLoad = canvas.getObjects().find(o => o.id === data.imageId);
+        if (existingAfterLoad) {
+          const isGhost = existingAfterLoad.type === 'image' && (!existingAfterLoad._element || !existingAfterLoad._element.naturalWidth);
+          if (isGhost) {
+            isReceivingUpdate.current = true;
+            canvas.remove(existingAfterLoad);
+            isReceivingUpdate.current = false;
+          } else {
+            return; // Real image exists, skip
+          }
+        }
 
         const maxImageSize = Math.min(320, canvas.getWidth() * 0.35, canvas.getHeight() * 0.35);
         const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
@@ -513,15 +574,42 @@ const Canvas = () => {
           scaleY: scale
         });
 
+        // Apply buffered position from the generating client if available
+        const bufferedPos = pendingImagePositionsRef.current[data.imageId];
+        if (bufferedPos) {
+          const safePos = { ...bufferedPos };
+          delete safePos.src;
+          delete safePos.type;
+          img.set(safePos);
+          delete pendingImagePositionsRef.current[data.imageId];
+        }
+
         try {
           isReceivingUpdate.current = true;
           canvas.add(img);
+
+          const pendingLockSocketId = pendingLocksRef.current?.[data.imageId];
+          if (pendingLockSocketId && pendingLockSocketId !== socket.id) {
+            img.set({
+              _originalOpacity: img.opacity || 1,
+              _originalStroke: img.stroke,
+              _originalStrokeWidth: img.strokeWidth || 0,
+              selectable: false,
+              evented: false,
+              opacity: 0.5,
+              _lockedBy: pendingLockSocketId
+            });
+            delete pendingLocksRef.current[data.imageId];
+          }
+
           canvas.renderAll();
           advanceWatermarkContiguously(data?.eventId);
         } finally {
           isReceivingUpdate.current = false;
         }
-      });
+        // Broadcast final position so the server ledger records it for late joiners
+        socket.emit('canvas_update', { roomCode, objectData: getCompactObjectData(img) });
+      }, { crossOrigin: 'anonymous' });
     });
 
     const advanceWatermarkContiguously = (completedId) => {
@@ -549,11 +637,30 @@ const Canvas = () => {
         } else if (event === 'ai_image_generated') {
           if (!data?.base64 || !data?.imageId) return;
           const alreadyExists = canvasInstance.getObjects().find(o => o.id === data.imageId);
-          if (alreadyExists) return;
+          if (alreadyExists) {
+            const isGhost = alreadyExists.type === 'image' && (!alreadyExists._element || !alreadyExists._element.naturalWidth);
+            if (isGhost) {
+              isReceivingUpdate.current = true;
+              canvasInstance.remove(alreadyExists);
+              isReceivingUpdate.current = false;
+            } else {
+              return;
+            }
+          }
 
           fabric.Image.fromURL(`data:image/png;base64,${data.base64}`, (img, isError) => {
             if (isError || !img || !img.width || !img.height) return;
-            if (canvasInstance.getObjects().find(o => o.id === data.imageId)) return;
+            const existingInFlush = canvasInstance.getObjects().find(o => o.id === data.imageId);
+            if (existingInFlush) {
+              const isGhost = existingInFlush.type === 'image' && (!existingInFlush._element || !existingInFlush._element.naturalWidth);
+              if (isGhost) {
+                isReceivingUpdate.current = true;
+                canvasInstance.remove(existingInFlush);
+                isReceivingUpdate.current = false;
+              } else {
+                return;
+              }
+            }
 
             const maxImageSize = Math.min(320, canvasInstance.getWidth() * 0.35, canvasInstance.getHeight() * 0.35);
             const scale = Math.min(maxImageSize / img.width, maxImageSize / img.height, 1);
@@ -568,15 +675,40 @@ const Canvas = () => {
               scaleY: scale
             });
 
+            // Apply buffered position from the generating client if available
+            const bufferedPos = pendingImagePositionsRef.current[data.imageId];
+            if (bufferedPos) {
+              const safePos = { ...bufferedPos };
+              delete safePos.src;
+              delete safePos.type;
+              img.set(safePos);
+              delete pendingImagePositionsRef.current[data.imageId];
+            }
+
             try {
               isReceivingUpdate.current = true;
               canvasInstance.add(img);
+
+              const pendingLockSocketId = pendingLocksRef.current?.[data.imageId];
+              if (pendingLockSocketId && pendingLockSocketId !== socket.id) {
+                img.set({
+                  _originalOpacity: img.opacity || 1,
+                  _originalStroke: img.stroke,
+                  _originalStrokeWidth: img.strokeWidth || 0,
+                  selectable: false,
+                  evented: false,
+                  opacity: 0.5,
+                  _lockedBy: pendingLockSocketId
+                });
+                delete pendingLocksRef.current[data.imageId];
+              }
+
               canvasInstance.renderAll();
               advanceWatermarkContiguously(data?.eventId);
             } finally {
               isReceivingUpdate.current = false;
             }
-          });
+          }, { crossOrigin: 'anonymous' });
         }
       });
       pendingUpdatesRef.current = []; // Clear the queue
@@ -595,6 +727,7 @@ const Canvas = () => {
       }
 
       flushEventBuffer(canvasRef.current);
+      applyActiveLocks(pendingLocksRef?.current || {});
 
       // Resolve loading state
       isBoardLoadingRef.current = false;
@@ -611,7 +744,17 @@ const Canvas = () => {
           if (!isMounted) return; 
 
           if (data && data.canvasState) {
-            canvas.loadFromJSON(data.canvasState, () => {
+            let parsedState = typeof data.canvasState === 'string' ? JSON.parse(data.canvasState) : data.canvasState;
+
+            if (parsedState && parsedState.objects) {
+              parsedState.objects.forEach(obj => {
+                if (obj.type === 'image') {
+                  obj.crossOrigin = 'anonymous';
+                }
+              });
+            }
+
+            canvas.loadFromJSON(parsedState, () => {
               if (!isMounted) return; 
               canvas.renderAll();
               applyActiveLocks(pendingLocksRef?.current || {});
@@ -683,7 +826,7 @@ const Canvas = () => {
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────
   const handleSave = async () => {
     setIsSaving(true);
-    const canvasJSON = canvasRef.current.toJSON(['id', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
+    const canvasJSON = canvasRef.current.toJSON(['crossOrigin', 'id', 'eventId', '_lockedBy', '_originalOpacity', '_originalStroke', '_originalStrokeWidth']);
     
     // Scrub ephemeral lock state to keep the DB clean
     if (canvasJSON && canvasJSON.objects) {
