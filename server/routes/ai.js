@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { InferenceClient } = require('@huggingface/inference');
+const { roomTransientLedger, roomEventCounters } = require('../socket/roomHandlers');
 const router = express.Router();
 
 const DEFAULT_IMAGE_MODEL = 'black-forest-labs/FLUX.1-schnell';
@@ -57,8 +58,22 @@ module.exports = (io) => {
       // Generate a single shared ID so every client uses the same object ID
       const imageId = crypto.randomUUID();
 
+      if (!roomEventCounters[targetRoom]) roomEventCounters[targetRoom] = 0;
+      const eventId = ++roomEventCounters[targetRoom];
+      
+      const generatedData = { base64, imageId, eventId };
+
+      if (!roomTransientLedger[targetRoom]) roomTransientLedger[targetRoom] = [];
+      roomTransientLedger[targetRoom].push({ 
+        event: 'ai_image_generated', 
+        data: generatedData, 
+        timestamp: Date.now(),
+        eventId
+      });
+
       // Broadcast to all clients in this room (shared imageId prevents sync divergence)
-      io.to(targetRoom).emit('ai_image_generated', { base64, imageId });
+      io.to(targetRoom).emit('ai_image_generated', generatedData);
+
       res.json({ success: true });
       
     } catch (err) {
