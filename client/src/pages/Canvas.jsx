@@ -25,15 +25,18 @@ useEffect(() => {
   const lastAddedObjectRef = useRef(null);
   const redoObjectRef = useRef(null);
 
+  // Reset tool state when switching rooms without unmount
+  useEffect(() => {
+    setActiveTool('select');
+  }, [roomCode]);
+
   const handleUndo = () => {
     if (lastAddedObjectRef.current) {
       const obj = lastAddedObjectRef.current;
       if (canvasRef.current && canvasRef.current.getObjects().includes(obj)) {
+        // Let object:removed handle the socket emit — just guard against double-emit
         canvasRef.current.remove(obj);
         redoObjectRef.current = obj;
-        if (socketRef.current && obj.id && !isReceivingUpdate.current) {
-          socketRef.current.emit('canvas_delete', { roomCode, objectId: obj.id });
-        }
         lastAddedObjectRef.current = null;
       }
     }
@@ -219,6 +222,29 @@ useEffect(() => {
       // setActiveTool('select');
     });
 
+    canvas.on('selection:created', (e) => {
+      const obj = e.selected[0];
+      if (obj && obj.id) {
+        socket.emit('acquire_lock', { roomCode, object_id: obj.id });
+      }
+    });
+
+    canvas.on('selection:updated', (e) => {
+      if (e.deselected && e.deselected[0] && e.deselected[0].id) {
+        socket.emit('release_lock', { roomCode, object_id: e.deselected[0].id });
+      }
+      const obj = e.selected[0];
+      if (obj && obj.id) {
+        socket.emit('acquire_lock', { roomCode, object_id: obj.id });
+      }
+    });
+
+    canvas.on('selection:cleared', (e) => {
+      if (e.deselected && e.deselected[0] && e.deselected[0].id) {
+        socket.emit('release_lock', { roomCode, object_id: e.deselected[0].id });
+      }
+    });
+
     // ── ROOPAK'S DELETE HANDLER ──────────────────────────────────
     const handleKeyDown = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -236,11 +262,34 @@ useEffect(() => {
 
     // ── RECEIVE SIDE ─────────────────────────────────────────────
     socket.on('canvas_update', (data) => {
+      // Only skip if WE are the lock owner (i.e., we're actively moving it).
+      // If someone else owns the lock and sends an update, we still apply it.
+      const activeObj = canvas.getActiveObject();
+      if (activeObj?.id === data.objectData.id && !activeObj._lockedBy) return;
       isReceivingUpdate.current = true;
       const existing = canvas.getObjects().find(o => o.id === data.objectData.id);
       if (existing) {
         try {
-          existing.set(data.objectData);
+          if (data.objectData.type === 'line') {
+            // Fix Fabric.js Line sync by separating coordinates from bounding box
+            const { x1, y1, x2, y2, left, top, ...rest } = data.objectData;
+            existing.set(rest);               // Apply styling first
+            existing.set({ x1, y1, x2, y2 }); // Apply points
+            existing.set({ left, top });      // Force bounding box position
+          } else {
+            existing.set(data.objectData);
+          }
+          
+          // Re-enforce lock visual state if this object is currently locked by someone else
+          if (existing._lockedBy && existing._lockedBy !== socket.id) {
+            existing.set({
+              selectable: false,
+              evented: false,
+              opacity: 0.5,
+              strokeWidth: existing._originalStrokeWidth || existing.strokeWidth || 0
+            });
+          }
+          
           existing.setCoords();
           canvas.renderAll();
         } finally {
@@ -266,8 +315,62 @@ useEffect(() => {
     });
 
     // ── PHASE 3: HIMANSHU ADDS LOCKING LISTENERS HERE ────────────
-    // selection:created, selection:cleared, selection:updated
-    // lock_acquired, lock_released, user_disconnected_locks_cleared
+    socket.on('lock_acquired', (data) => {
+      if (data.lockedBy === socket.id) return;
+      const obj = canvas.getObjects().find(o => o.id === data.object_id);
+      if (obj) {
+        if (obj.selectable === false) return;
+        // Save original appearance for restoration on unlock
+        obj.set({
+          _originalOpacity: obj.opacity || 1,
+          _originalStroke: obj.stroke,
+          _originalStrokeWidth: obj.strokeWidth || 0
+        });
+        // Checkpoint spec: red stroke + 0.5 opacity
+        obj.set({
+          selectable: false,
+          evented: false,
+          opacity: 0.5,
+          _lockedBy: data.lockedBy
+        });
+        canvas.renderAll();
+      }
+    });
+
+    socket.on('lock_released', (data) => {
+      const obj = canvas.getObjects().find(o => o.id === data.object_id);
+      if (obj) {
+        // Restore original appearance AND clear _lockedBy to prevent
+        // canvas_update handler from re-applying lock styling
+        obj.set({
+          selectable: true,
+          evented: true,
+          opacity: obj._originalOpacity || 1,
+          stroke: obj._originalStroke,
+          strokeWidth: obj._originalStrokeWidth || obj.strokeWidth || 0,
+          _lockedBy: null
+        });
+        canvas.renderAll();
+      }
+    });
+
+    socket.on('user_disconnected_locks_cleared', (disconnectedSocketId) => {
+      let requiresRender = false;
+      canvas.getObjects().forEach((obj) => {
+        if (obj._lockedBy === disconnectedSocketId) {
+          obj.set({ 
+            selectable: true, 
+            evented: true, 
+            opacity: obj._originalOpacity || 1, 
+            stroke: obj._originalStroke,
+            strokeWidth: obj._originalStrokeWidth || obj.strokeWidth || 0,
+            _lockedBy: null 
+          });
+          requiresRender = true;
+        }
+      });
+      if (requiresRender) canvas.renderAll();
+    });
 
     // ── PHASE 4: HIMANSHU ADDS ai_image_generated LISTENER HERE ──
 
@@ -282,6 +385,9 @@ useEffect(() => {
   }, [roomCode]);
 
   useEffect(() => {
+    // Single source of truth for the global tool flag — eliminates stale leaks across remounts
+    window.CANVAS_ACTIVE_TOOL = activeTool;
+
     if (!canvasRef.current) return;
     
     if (activeTool === 'pen' || activeTool === 'eraser') {
@@ -291,6 +397,8 @@ useEffect(() => {
     } else {
       canvasRef.current.isDrawingMode = false;
     }
+
+    return () => { window.CANVAS_ACTIVE_TOOL = 'select'; };
   }, [activeTool, brushColor, brushWidth]);
 
   // ── PHASE 5: HIMANSHU WIRES handleSave HERE ───────────────────

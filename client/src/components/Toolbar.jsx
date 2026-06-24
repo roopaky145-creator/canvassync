@@ -16,7 +16,6 @@ const Toolbar = ({ activeTool, setActiveTool, onSave, handleUndo, handleRedo, br
 
   const handleToolClick = (toolId) => {
     setActiveTool(toolId);
-    window.CANVAS_ACTIVE_TOOL = toolId;
   };
 
   return (

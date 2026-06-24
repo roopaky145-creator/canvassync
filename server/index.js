@@ -26,7 +26,7 @@ const io = new Server(server, {
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .catch(err => console.warn('MongoDB unavailable — real-time features still work. Reason:', err.message));
 
 app.use('/api/rooms', roomsRouter);
 
